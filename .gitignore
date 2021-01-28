@@ -1,5 +1,14 @@
 # ignore venv files
-caps_venv/
+caps_vev/
 
 # ignore data files
 data/
+
+# ignore vscode files
+.ipynb_checkpoints/
+
+# ignore vscode files
+.vscode/
+
+#ignore pip files
+Pipfile
