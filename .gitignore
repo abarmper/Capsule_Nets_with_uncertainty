@@ -12,3 +12,6 @@ data/
 
 #ignore pip files
 Pipfile
+
+#ignore tutorial
+tutorial_Pytorch/
