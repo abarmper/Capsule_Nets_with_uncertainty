@@ -5,6 +5,7 @@ by Sasabour, Frosst and  Hinton. I will try to comment it step by step so as to 
 """
 
 from __future__ import print_function
+from numpy.core.numeric import Inf
 
 import torch
 import torch.nn as nn
@@ -13,6 +14,63 @@ import math
 
 from torch.optim import lr_scheduler
 from torch.autograd import Variable
+
+import logging
+import os
+from datetime import date
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import pandas as pd
+sns.set_theme()
+
+
+
+def print_learning_curve(train_loss, test_loss, eps):
+    """
+    Plot diagnostic learning curves.
+    """
+    fig, ax = plt.subplots(figsize=(8, 8))
+    plt.suptitle('Training Curves')
+    # plot losses
+    plt.title('Loss')
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+
+    plt.plot(np.arange(1, eps+1, step=1), train_loss, color='blue', label='train')
+    plt.plot(np.arange(1, eps+1, step=1), test_loss, color='orange', label='test')
+    plt.legend(loc='upper right')
+    return plt
+
+def print_accuracy_curve(test_acc, eps):
+    """
+    Plot diagnostic accuracy curve.
+    """
+    fig, ax = plt.subplots(figsize=(8, 8))
+    plt.suptitle('Test Accuracy')
+    # plot accuracy
+    plt.title('Classification Accuracy')
+    plt.ylabel('Accuracy')
+    plt.xlabel('Epoch')
+    plt.plot(np.arange(1, eps+1, step=1), test_acc, color='blue', label='train')
+
+    return plt
+
+def print_accuracy_curve_norm(test_acc, eps):
+    """
+    Plot diagnostic accuracy curve but with stnandard y axis from 0% to 100%.
+    """
+    fig, ax = plt.subplots(figsize=(8, 8))
+    plt.suptitle('Test Accuracy')
+    # plot accuracy
+    plt.title('Classification Accuracy')
+    plt.ylabel('Accuracy')
+    plt.xlabel('Epoch')
+    ax.set_ylim((0,100))
+    plt.plot(np.arange(1, eps+1, step=1), test_acc, color='blue', label='train')
+
+    return plt
 
 def squash(x: torch.Tensor) -> torch.Tensor:
     """Function that implements the squashing described in eq.1 in the paper.
@@ -257,6 +315,53 @@ class MarginLoss(nn.Module):
             self.lambda_ * (1. - targets.float()) * F.relu(lengths - self.m_neg).pow(2)
         return losses.mean() if size_average else losses.sum()
 
+class Logger():
+    """
+    This class is responsible for logging information about the training process as well as keeping 
+    the results and creating graghs for the losses.
+    """
+    def __init__(self, filename, path):
+        # Define the format in which log messeges will apear.
+        FILE_LOG_FORMAT = "%(asctime)s %(filename)s:%(lineno)d %(message)s"
+        CONSOLE_LOG_FORMAT = "%(levelname)s %(message)s"
+
+        if not os.path.isdir(path):
+            # Create a folder containing the experiments.
+            try:
+                os.makedirs(path)
+            except OSError:
+                print ("Creation of the directory %s failed" % path)
+            else:
+                print ("Successfully created the directory %s " % path)
+
+        log_file = os.path.join(path, filename)
+
+
+        if not os.path.isfile(log_file):
+            open(log_file, "w").close()
+
+        logging.basicConfig(level=logging.INFO, format=CONSOLE_LOG_FORMAT)
+        self.logger = logging.getLogger()
+
+        handler = logging.FileHandler(log_file)
+        handler.setLevel(logging.INFO)
+
+        formatter = logging.Formatter(FILE_LOG_FORMAT)
+        handler.setFormatter(formatter)
+
+        self.logger.addHandler(handler)
+        
+
+    def info_message(self, message):
+        self.logger.info(message)
+        return
+
+    def print_train_args(self, args):
+        for arg in vars(args):
+            message = str(arg) + ": " + str(getattr(args, arg))
+            self.logger.info(message)
+
+
 
 if __name__ == '__main__':
 
@@ -273,24 +378,30 @@ if __name__ == '__main__':
                         help='input batch size for training (default: 32)')
     parser.add_argument('--test-batch-size', type=int, default=32, metavar='N',
                         help='input batch size for testing (default: 32)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
-                        help='number of epochs to train (default: 10)')
+    parser.add_argument('--epochs', type=int, default=250, metavar='N',
+                        help='number of epochs to train (default: 250)')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                        help='how many batches to wait before logging training status')
+    parser.add_argument('--log-interval', type=int, default=200, metavar='N',
+                        help='how many batches to wait before logging training status (default: 200)')
     parser.add_argument('--routing_iterations', help='# of routing iterations (default: 3)', type=int, default=3)
     parser.add_argument('--with_reconstruction', action='store_true', default=False)
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
+    folder_name = os.path.join("./experiments",f"dynamic_routing_{date.today().strftime('%d-%m-%y')}_{args.dataset}_{args.batch_size}_{args.epochs}_{args.lr}_{args.routing_iterations}_{args.with_reconstruction}")
+    log = Logger(f"logfile.logs", folder_name)
+    log.info_message("Parameters of the training procedure. \n")
+    log.print_train_args(args)
+
     torch.manual_seed(args.seed)
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
+        log.info_message("Using CUDA.")
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 
@@ -314,6 +425,7 @@ if __name__ == '__main__':
         output_classes = 10
         in_channels = 1
         types_of_primary_caps = 32
+
     elif args.dataset == "MNIST":
         train_loader = torch.utils.data.DataLoader(
             datasets.MNIST('../data', train=True, download=True,
@@ -331,6 +443,7 @@ if __name__ == '__main__':
         output_classes = 10
         in_channels = 1
         types_of_primary_caps = 32
+
     elif args.dataset == "CIFAR10":
         train_loader = torch.utils.data.DataLoader(
             datasets.CIFAR10('../data', train=True, download=True,
@@ -346,9 +459,10 @@ if __name__ == '__main__':
             ])),
             batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
-        output_classes = 11 # 10 + "none-of-the-above" category (see Hinton's paper section 7)
+        output_classes = 11 # 10 + "none-of-the-above" category (see Hinton's paper on dynamic routing section 7)
         in_channels = 3
         types_of_primary_caps = 64
+
     else:
         raise ValueError("Invalid dataset argument.")
 
@@ -378,6 +492,7 @@ if __name__ == '__main__':
         # Sets the mode flag to True. This is usefull when dropout and bachnorm because their
         # behavior differs from training to testing mode.
         model.train()
+        train_loss = 0
         for batch_idx, (data, target) in enumerate(train_loader):
             if args.cuda:
                 data, target = data.cuda(), target.cuda()  # data is [batch_size, channels, hight_of_image, width_of_image]
@@ -394,12 +509,17 @@ if __name__ == '__main__':
                 loss = loss_fn(probs, target)
             loss.backward()
             optimizer.step()
+            train_loss += loss.data.item()
             if batch_idx % args.log_interval == 0:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                log.info_message('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                     epoch, batch_idx * len(data), len(train_loader.dataset),
                     100. * batch_idx / len(train_loader), loss.data.item()))
 
-    def test():
+        train_loss /= len(test_loader.dataset)
+        return train_loss
+            
+
+    def test(epoch):
         """
         Function used to test the Capsule network.
 
@@ -431,15 +551,43 @@ if __name__ == '__main__':
                 correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
             test_loss /= len(test_loader.dataset)
-        print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-            test_loss, correct, len(test_loader.dataset), 100. * correct / len(test_loader.dataset)))
-        return test_loss
+            acc = 100. * correct / len(test_loader.dataset)
+            log.info_message('Test Epoch:{} Average loss: {:.4f}, Accuracy: {}/{} ({:.1f}%)\n'.format(epoch, 
+            test_loss, correct, len(test_loader.dataset), acc))
+        return test_loss, acc
 
+    log.info_message(f"Starting training... for {args.epochs} epochs.\n")
+    test_loss =[]; train_loss = []; test_acc = []; best_loss1 = +Inf; best_acc1 = -1
     for epoch in range(1, args.epochs + 1):
-        train(epoch)
-        test_loss = test()
-        scheduler.step(test_loss) # scheduler adapts the learning rate according to the evaluation loss 
+        train_loss1 = train(epoch)
+        test_loss1, test_acc1 = test(epoch)
+        scheduler.step(test_loss1) # scheduler adapts the learning rate according to the evaluation loss 
                                     # (if it dosent decrease for more than patience steps, the learning rate is decreased).
-        torch.save(model.state_dict(),
-                   '{:03d}_model_dict_{}routing_reconstruction{}.pth'.format(epoch, args.routing_iterations,
-                                                                             args.with_reconstruction))
+        if test_loss1 < best_loss1 and test_acc1 > best_acc1:
+            best_acc1 = test_acc1; best_loss1 = test_loss1
+            torch.save(model.state_dict(),os.path.join(folder_name, '{:03d}_model_dict_{}routing_reconstruction{}.pth'.format(epoch, args.routing_iterations,
+                                                                             args.with_reconstruction)))
+                                                                    
+        test_loss.append(test_loss1); train_loss.append(train_loss1); test_acc.append(test_acc1)
+    log.info_message("Training finished.\n")
+
+    # Make figures.
+    log.info_message("Creating figures and saving lists of training data.")
+    print_learning_curve(train_loss, test_loss, args.epochs).savefig(f"{os.path.join(folder_name, 'train_curve.png')}")
+    print_accuracy_curve(test_acc, args.epochs).savefig(f"{os.path.join(folder_name, 'test_acc_curve.png')}")
+    print_accuracy_curve_norm(test_acc, args.epochs).savefig(f"{os.path.join(folder_name, 'test_acc_curve_norm.png')}")
+
+    # Save data to csv.
+    train_loss_dict = {'Epoch' : np.arange(1,args.epochs + 1), 'train_loss' : train_loss}
+    test_loss_dict = {'Epoch' : np.arange(1,args.epochs + 1), 'test_loss' : test_loss}
+    test_acc_dict = {'Epoch' : np.arange(1,args.epochs + 1), 'test_acc' : test_acc}
+
+    df_train_loss = pd.DataFrame(train_loss_dict) 
+    df_test_loss = pd.DataFrame(test_loss_dict) 
+    df_test_acc = pd.DataFrame(test_acc_dict) 
+
+    df_train_loss.to_csv(f"{os.path.join(folder_name, 'test_loss.csv')}") 
+    df_test_loss.to_csv(f"{os.path.join(folder_name, 'train_loss.csv')}") 
+    df_test_acc.to_csv(f"{os.path.join(folder_name, 'test_acc.csv')}")
+
+    log.info_message("Finished.")
