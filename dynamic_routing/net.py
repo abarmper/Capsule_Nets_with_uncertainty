@@ -25,8 +25,6 @@ import numpy as np
 import pandas as pd
 sns.set_theme()
 
-
-
 def print_learning_curve(train_loss, test_loss, eps):
     """
     Plot diagnostic learning curves.
@@ -38,8 +36,8 @@ def print_learning_curve(train_loss, test_loss, eps):
     plt.ylabel('Loss')
     plt.xlabel('Epoch')
 
-    plt.plot(np.arange(1, eps+1, step=1), train_loss, color='blue', label='train')
-    plt.plot(np.arange(1, eps+1, step=1), test_loss, color='orange', label='test')
+    plt.plot(np.arange(1, eps + 1, step=1), train_loss, color='blue', label='train')
+    plt.plot(np.arange(1, eps + 1, step=1), test_loss, color='orange', label='test')
     plt.legend(loc='upper right')
     return plt
 
@@ -53,7 +51,7 @@ def print_accuracy_curve(test_acc, eps):
     plt.title('Classification Accuracy')
     plt.ylabel('Accuracy')
     plt.xlabel('Epoch')
-    plt.plot(np.arange(1, eps+1, step=1), test_acc, color='blue', label='train')
+    plt.plot(np.arange(1, eps + 1, step=1), test_acc, color='blue', label='train')
 
     return plt
 
@@ -67,8 +65,8 @@ def print_accuracy_curve_norm(test_acc, eps):
     plt.title('Classification Accuracy')
     plt.ylabel('Accuracy')
     plt.xlabel('Epoch')
-    ax.set_ylim((0,100))
-    plt.plot(np.arange(1, eps+1, step=1), test_acc, color='blue', label='train')
+    ax.set_ylim((0, 100))
+    plt.plot(np.arange(1, eps + 1, step=1), test_acc, color='blue', label='train')
 
     return plt
 
@@ -88,7 +86,7 @@ def squash(x: torch.Tensor) -> torch.Tensor:
     x : torch.Tensor
         squashed vector v_j
     """
-    lengths2 = x.pow(2).sum(dim=2) # vector s_j is stored in the third dimension of x.
+    lengths2 = x.pow(2).sum(dim=2)  # vector s_j is stored in the third dimension of x.
     lengths = lengths2.sqrt()
     x = x * (lengths2 / (1 + lengths2) / lengths).view(x.size(0), x.size(1), 1)
     return x
@@ -105,36 +103,67 @@ class AgreementRouting(nn.Module):
     input_caps : int
     output_caps : int
     n_iterations : int
+    argmax : bool
 
     Methods
     -------
     forward
     """
-    def __init__(self, input_caps, output_caps, n_iterations):
+    def __init__(self, input_caps, output_caps, n_iterations, argmax=False, arg_max_ones=True):
         super(AgreementRouting, self).__init__()
         self.n_iterations = n_iterations
+        self.argmax = argmax # If true, we compute parent vector as thechild vector with the maximul c_i.
         # Parameters aare like tensors but when assigned as Module attribiutes they are added to the parameters list.
         # Parameters go to cuda if model is on cuda.
+        self.arg_max_ones = arg_max_ones # Only used if argmax is true. If arg_max_ones is true then the winning coefficient becomes one.
         self.b = nn.Parameter(torch.zeros((input_caps, output_caps))) 
+        
 
     def forward(self, u_predict):
         batch_size, input_caps, output_caps, output_dim = u_predict.size()
-
         c = F.softmax(self.b, dim=1)
-        s = (c.unsqueeze(2) * u_predict).sum(dim=1)
-        v = squash(s)
+        s1 = (c.unsqueeze(2) * u_predict)
+        s2 = s1.sum(dim=1)
+        v = squash(s2)
 
         if self.n_iterations > 0:
+
             b_batch = self.b.expand((batch_size, input_caps, output_caps))
             for r in range(self.n_iterations):
                 v = v.unsqueeze(1)
                 b_batch = b_batch + (u_predict * v).sum(-1)
 
                 c = F.softmax(b_batch.view(-1, output_caps), dim=1).view(-1, input_caps, output_caps, 1)
-                s = (c * u_predict).sum(dim=1)
-                v = squash(s)
+                s1 = (c * u_predict)
+                s2 = s1.sum(dim=1)
+                v = squash(s2)
+                
+            if self.argmax:
+                # Instead of using a weighted sum of votes, choose the vote of child capsule with the largest c coefficient and pass that vote only to the next layer (digit caps).
 
-        return v
+                c_zero = torch.zeros_like(c)
+                values, idx = c.max(dim=1)
+                if self.arg_max_ones:
+                    c_ones = torch.ones_like(c)
+                    c_sparse = c_zero.scatter(1, idx.unsqueeze(dim=1), c_ones) # Sparse patrix has zeros everywhere but the winning child capsule (for each parent capsule).
+                    v = (c_sparse * u_predict).sum(dim=1)
+                else:
+                    c_sparse = c_zero.scatter(1, idx.unsqueeze(dim=1), values.unsqueeze(dim=1))
+                    s = (c_sparse * u_predict).sum(dim=1)
+                    v = squash(s) # This may not be needed bc s < 1 True for all but squash also pushes towords 1 at a sertain range.
+        elif self.n_iterations < 0:
+            # If iterations is < 0 then find the longest vote vector for each parent capsule and pass this one.
+            u_c = u_predict.norm(dim=3) # Take the l2 norm of each vote vector to find which is the longest.
+            values, idx = u_c.max(dim=1) 
+            c_zero = torch.zeros_like(u_c)
+            c_ones = torch.ones_like(u_c)
+            c_sparse = c_zero.scatter(1, idx.unsqueeze(dim=1), c_ones) # Sparse patrix has zeros everywhere but the winning child capsule (for each parent capsule).
+            v = (c_sparse.unsqueeze(dim=3) * u_predict).sum(dim=1)
+        else:
+            # This means that n_iterations ==0, we have already taken into account this case.
+            pass
+
+        return v, s1
 
 
 class CapsLayer(nn.Module):
@@ -164,8 +193,8 @@ class CapsLayer(nn.Module):
         caps_output = caps_output.unsqueeze(2)
         u_predict = caps_output.matmul(self.weights)
         u_predict = u_predict.view(u_predict.size(0), self.input_caps, self.output_caps, self.output_dim)
-        v = self.routing_module(u_predict)
-        return v
+        v, s1 = self.routing_module(u_predict)
+        return v, s1
 
 
 class PrimaryCapsLayer(nn.Module):
@@ -193,7 +222,7 @@ class PrimaryCapsLayer(nn.Module):
     def forward(self, input):
         out = self.conv(input)
         N, C, H, W = out.size()
-        out = out.view(N, self.output_caps, self.output_dim, H, W) # Group the output vectors together.
+        out = out.view(N, self.output_caps, self.output_dim, H, W)  # Group the output vectors together.
 
         # will output N x OUT_CAPS x OUT_DIM
         out = out.permute(0, 1, 3, 4, 2).contiguous()
@@ -206,21 +235,21 @@ class CapsNet(nn.Module):
     """
     Putting it all together. It encapsulates the network found in Figure 1 of the paper.
     """
-    def __init__(self, routing_iterations, n_classes=10, input_channels=1, types_of_primary_caps=32):
+    def __init__(self, routing_iterations, n_classes=10, input_channels=1, types_of_primary_caps=32, argmax=False, arg_max_ones=True):
         super(CapsNet, self).__init__()
         self.conv1 = nn.Conv2d(input_channels, 256, kernel_size=9, stride=1)
         self.primaryCaps = PrimaryCapsLayer(256, types_of_primary_caps, 8, kernel_size=9, stride=2)  # outputs 6*6
         self.num_primaryCaps = types_of_primary_caps * 6 * 6
-        routing_module = AgreementRouting(self.num_primaryCaps, n_classes, routing_iterations)
+        routing_module = AgreementRouting(self.num_primaryCaps, n_classes, routing_iterations, argmax, arg_max_ones)
         self.digitCaps = CapsLayer(self.num_primaryCaps, 8, n_classes, 16, routing_module)
 
     def forward(self, input):
         x = self.conv1(input)
         x = F.relu(x)
         x = self.primaryCaps(x)
-        x = self.digitCaps(x)
+        x, s1 = self.digitCaps(x)
         probs = x.pow(2).sum(dim=2).sqrt()
-        return x, probs
+        return x, probs, s1
 
 
 class ReconstructionNet(nn.Module):
@@ -238,15 +267,15 @@ class ReconstructionNet(nn.Module):
     def forward(self, x, target):
         # Mask so as to feed the decoder network with the DigitCaps vector prediction of the correct digit.
         # Dose the same apply during test time? (Where we do not have the target.)
-        # Shouldn't we use the argmax() over the norms of digitCaps vectors during test time instead ?
+        # Shouldn't we use the argmax() over the norms of digitCaps vectors during test time instead ? That's what we did.
         mask = Variable(torch.zeros((x.size()[0], self.n_classes)), requires_grad=False)
 
         if next(self.parameters()).is_cuda:
             mask = mask.cuda()
         if self.training:
-            mask.scatter_(1, target.view(-1, 1), 1.) # To one hot vector
+            mask.scatter_(1, target.view(-1, 1), 1.)  # To one hot vector
         else:
-            mask.scatter_(1, torch.argmax(torch.argmax(torch.norm(x, dim=2), dim=1, keepdim=False).view(-1, 1), dim=1,keepdim=True), 1.) # To one hot vector
+            mask.scatter_(1, torch.argmax(torch.argmax(torch.norm(x, dim=2), dim=1, keepdim=False).view(-1, 1), dim=1, keepdim=True), 1.)  # To one hot vector
         mask = mask.unsqueeze(2)
         x = x * mask
         x = x.view(-1, self.n_dim * self.n_classes)
@@ -266,9 +295,9 @@ class CapsNetWithReconstruction(nn.Module):
         self.reconstruction_net = reconstruction_net
 
     def forward(self, x, target):
-        x, probs = self.capsnet(x)
+        x, probs, s1 = self.capsnet(x)
         reconstruction = self.reconstruction_net(x, target)
-        return reconstruction, probs
+        return reconstruction, probs, s1
 
 
 class MarginLoss(nn.Module):
@@ -374,6 +403,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dataset', type=str, default="MNIST",
                         help='choose between MNIST (default) or Fashion-MNIST or CIFAR10')
+    parser.add_argument('--dataset_file', type=str, default="../../data",
+                        help='set the directory where the dataset is/will be located (default: ../../data)')
     parser.add_argument('--batch-size', type=int, default=32, metavar='N',
                         help='input batch size for training (default: 32)')
     parser.add_argument('--test-batch-size', type=int, default=32, metavar='N',
@@ -388,12 +419,15 @@ if __name__ == '__main__':
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=200, metavar='N',
                         help='how many batches to wait before logging training status (default: 200)')
-    parser.add_argument('--routing_iterations', help='# of routing iterations (default: 3)', type=int, default=3)
+    parser.add_argument('--routing_iterations', help='# of routing iterations (default: 3).', type=int, default=3)
+    parser.add_argument('--with_argmax' , action='store_true', default=False, help='If set then instead of calculating the parent capsule\'s vector by the weighted sum, we do argmax. (default: False)')
+    parser.add_argument('--without_argmax_one' , action='store_false', default=True, help='Only used when with_argmax. If set (i.e. false), the winning child capsule (i) dose not pass its vote with coefficient c_i = 1 but instead \
+    the vote is multiplied by the c_i which of course is the largest of all c_i for that parent capsule j.')
     parser.add_argument('--with_reconstruction', action='store_true', default=False)
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
 
-    folder_name = os.path.join("./experiments",f"dynamic_routing_{date.today().strftime('%d-%m-%y')}_{args.dataset}_{args.batch_size}_{args.epochs}_{args.lr}_{args.routing_iterations}_{args.with_reconstruction}")
+    folder_name = os.path.join("./experiments",f"dynamic_routing_{date.today().strftime('%d-%m-%y')}_dataset:{args.dataset}_bsz:{args.batch_size}_epochs:{args.epochs}_lr:{args.lr}_routiter:{args.routing_iterations}_recon:{args.with_reconstruction}_argmax:{args.with_argmax}_withones:{args.without_argmax_one}")
     log = Logger(f"logfile.logs", folder_name)
     log.info_message("Parameters of the training procedure. \n")
     log.print_train_args(args)
@@ -410,7 +444,7 @@ if __name__ == '__main__':
     # The only transformations on images is the shift in any direction of up to 2 pixels.
     if args.dataset == "Fashion-MNIST":
         train_loader = torch.utils.data.DataLoader(
-            datasets.FashionMNIST('../data', train=True, download=True,
+            datasets.FashionMNIST(args.dataset_file, train=True, download=True,
                         transform=transforms.Compose([
                             transforms.Pad(2), transforms.RandomCrop(28),
                             transforms.ToTensor()
@@ -418,7 +452,7 @@ if __name__ == '__main__':
             batch_size=args.batch_size, shuffle=True, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
-            datasets.FashionMNIST('../data', train=False, transform=transforms.Compose([
+            datasets.FashionMNIST(args.dataset_file, train=False, transform=transforms.Compose([
                 transforms.ToTensor()
             ])),
             batch_size=args.test_batch_size, shuffle=False, **kwargs)
@@ -428,7 +462,7 @@ if __name__ == '__main__':
 
     elif args.dataset == "MNIST":
         train_loader = torch.utils.data.DataLoader(
-            datasets.MNIST('../data', train=True, download=True,
+            datasets.MNIST(args.dataset_file, train=True, download=True,
                         transform=transforms.Compose([
                             transforms.Pad(2), transforms.RandomCrop(28),
                             transforms.ToTensor()
@@ -436,7 +470,7 @@ if __name__ == '__main__':
             batch_size=args.batch_size, shuffle=True, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
-            datasets.MNIST('../data', train=False, transform=transforms.Compose([
+            datasets.MNIST(args.dataset_file, train=False, transform=transforms.Compose([
                 transforms.ToTensor()
             ])),
             batch_size=args.test_batch_size, shuffle=False, **kwargs)
@@ -446,7 +480,7 @@ if __name__ == '__main__':
 
     elif args.dataset == "CIFAR10":
         train_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10('../data', train=True, download=True,
+            datasets.CIFAR10(args.dataset_file, train=True, download=True,
                         transform=transforms.Compose([
                             transforms.Pad(2), transforms.RandomCrop(28),
                             transforms.ToTensor()
@@ -454,7 +488,7 @@ if __name__ == '__main__':
             batch_size=args.batch_size, shuffle=True, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10('../data', train=False, transform=transforms.Compose([
+            datasets.CIFAR10(args.dataset_file, train=False, transform=transforms.Compose([
                 transforms.CenterCrop(28), transforms.ToTensor()
             ])),
             batch_size=args.test_batch_size, shuffle=False, **kwargs)
@@ -468,7 +502,7 @@ if __name__ == '__main__':
 
 
     model = CapsNet(args.routing_iterations, n_classes=output_classes,
-                    input_channels=in_channels, types_of_primary_caps=types_of_primary_caps)
+                    input_channels=in_channels, types_of_primary_caps=types_of_primary_caps, argmax=args.with_argmax, arg_max_ones=args.without_argmax_one)
 
     if args.with_reconstruction:
         reconstruction_model = ReconstructionNet(16, output_classes, in_channels)
@@ -500,12 +534,12 @@ if __name__ == '__main__':
                                                                                 # Use tensors with requires_grad instead.
             optimizer.zero_grad()
             if args.with_reconstruction:
-                output, probs = model(data, target)
+                output, probs, _ = model(data, target)
                 reconstruction_loss = F.mse_loss(output, data.view(-1, in_channels* 28 * 28)) # 28 == hight == width
                 margin_loss = loss_fn(probs, target)
                 loss = reconstruction_alpha * reconstruction_loss + margin_loss # Loss described in paragraph 4.1
             else:
-                output, probs = model(data)
+                output, probs, _ = model(data)
                 loss = loss_fn(probs, target)
             loss.backward()
             optimizer.step()
@@ -539,12 +573,12 @@ if __name__ == '__main__':
                                                                                 # Volatile sets requires_grad=False and
                                                                                 # is used when we do not use .backward()
                 if args.with_reconstruction:
-                    output, probs = model(data, target)
+                    output, probs, _ = model(data, target)
                     reconstruction_loss = F.mse_loss(output, data.view(-1, in_channels* 28 * 28), reduction='sum').data.item()  # 28 == hight == width
                     test_loss += loss_fn(probs, target, size_average=False).data.item()
                     test_loss += reconstruction_alpha * reconstruction_loss
                 else:
-                    output, probs = model(data)
+                    output, probs, _ = model(data)
                     test_loss += loss_fn(probs, target, size_average=False).data.item()
 
                 pred = probs.data.max(1, keepdim=True)[1]  # get the index of the max probability
@@ -553,8 +587,8 @@ if __name__ == '__main__':
             test_loss /= len(test_loader.dataset)
             acc = 100. * correct / len(test_loader.dataset)
             log.info_message('Test Epoch:{} Average loss: {:.4f}, Accuracy: {}/{} ({:.1f}%)\n'.format(epoch, 
-            test_loss, correct, len(test_loader.dataset), acc))
-        return test_loss, acc
+            test_loss, correct, len(test_loader.dataset), acc.data.item()))
+        return test_loss, acc.data.item()
 
     log.info_message(f"Starting training... for {args.epochs} epochs.\n")
     test_loss =[]; train_loss = []; test_acc = []; best_loss1 = +Inf; best_acc1 = -1
