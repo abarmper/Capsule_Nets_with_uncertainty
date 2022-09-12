@@ -1,0 +1,13 @@
+Experiments on self-attention caps:
+
+For the MNIST and CIFAR10 dataset it would be usefull to test:
+1) deconvolution (on/off)
+2) multihead attention (many variations)
+3) smaller convolution kernels before primary caps layer
+4) Chek the attention map after the model is trained (and when it uses small kernels)
+5) reconstruction
+
+For MULTIMNIST and smallNORB dataset:
+1) deconvolution (on/off)
+2) multihead attention (many variations)
+3) smaller convolution kernels before primary caps layer
