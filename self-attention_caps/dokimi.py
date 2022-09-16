@@ -1,4 +1,158 @@
+from curses.ascii import SO
+from re import S
 import tensorflow as tf
+import numpy as np
+
+
+# Initialize
+shapeW = [5,4,3,6] # (n^{L+1}, n^L ,d^L, D^{L+1})
+W = tf.range(np.prod(shapeW), dtype=tf.int64)
+W = tf.reshape(W,shapeW)
+
+shapeCL = [1, 4, 3]# [batch_size, n^L, D^L]
+CL = tf.range(np.prod(shapeCL), dtype=tf.int64)
+CL = tf.reshape(CL, shapeCL)
+
+# Compute votes
+V = tf.einsum('...ji,kjiz->...kjz',CL,W) # [batch_size, n^{L+1}, n^L, D^{L+1}]
+
+# Pass it to attention
+
+# (Initialize)
+shapeWk = shapeWq =  [6, 2, 3]# [d^{L+1}, A, d_k^L] 
+Wq = tf.range(np.prod(shapeWk), dtype=tf.int64)
+Wk = Wq = tf.reshape(Wq, shapeWk)
+
+shapeWv = [6, 2 ,3]# [d^{L+1}, A, d_v^L] 
+Wv = tf.reverse(tf.range(np.prod(shapeWv), dtype=tf.int64), axis=[0])
+Wv = tf.reshape(Wv, shapeWv)
+
+shapeWo_old = [3, 2, 6] # [A, d_v^L, d^{L+1}]
+Wo_old = tf.range(-np.prod(shapeWo_old)/2, +np.prod(shapeWo_old)/2, dtype=tf.int64)
+Wo_old = tf.reshape(Wo_old, shapeWo_old)
+
+shapeWo = [3*2, 6] # [d_v^L * A, d^{L+1}]
+Wo = tf.range(-np.prod(shapeWo)/2, +np.prod(shapeWo)/2, dtype=tf.int64)
+Wo = tf.reshape(Wo, shapeWo)
+
+shapeWo_new = [3, 2, 6] # [d_v^L, A, d^{L+1}]
+Wo_new = tf.range(-np.prod(shapeWo_new)/2, +np.prod(shapeWo_new)/2, dtype=tf.int64)
+Wo_new = tf.reshape(Wo_new, shapeWo_new)
+
+shapebk = shapebq = [2, 3] # [A, d_k^L]
+bk = bq = tf.range(np.prod(shapebq), dtype=tf.int64)
+# bk = bq =tf.ones(shapebk, dtype=tf.int64)
+bk=bq = tf.reshape(bk, shapebk)
+
+shapebv = [2, 3] # [A, d_v^L]
+bv = tf.ones(shapebv, dtype=tf.int64)
+
+shapebk_old = shapebq_old = [2, 1, 3] # [A, d_k^L]
+bk_old = bq_old = tf.range(np.prod(shapebq_old), dtype=tf.int64)
+# bk = bq =tf.ones(shapebk, dtype=tf.int64)
+bk_old=bq_old = tf.reshape(bk_old, shapebk_old)
+
+shapebv_old = [2, 1, 3] # [A, d_v^L]
+bv_old = tf.ones(shapebv_old, dtype=tf.int64)
+
+
+shapebo = [6] # [d^{L+1}]
+bo = tf.range(np.prod(shapebo))
+bo = tf.reshape(bo, shapebo)
+
+# Start projection of votes to KQV (only if A > 0)
+# Original: 
+Q_old = tf.einsum('...ki,izj->...zkj', V, Wq) # [batch_size, n^{L+1}, A, n^L, d_k^L]
+Q_old_transformed = tf.transpose(Q_old, perm=[0,1,3,4,2])
+
+# if you want output shape to be [batch_size, d^{L+1}, n^L, d_k^L, A] then do '...ki,izj->...kjz' . This is what we will try now.
+Q = tf.einsum('...ki,izj->...kjz', V, Wq) # [batch_size, n^{L+1}, n^L, d_k^L, A]
+# If you want to have shape [batch_size, n^{L+1}, A, n^L, d_k^L] then do: Q_new_transformed = tf.transpose(Q, perm=[0,1,4,2,3])
+tf.math.reduce_all(tf.equal(Q,Q_old_transformed)) # True, so they are equal!
+
+# Do the same for the other matrices (K,V)
+K_old = tf.einsum('...ki,izj->...zkj', V, Wk) # [batch_size, n^{L+1}, A, n^L, d_k^L]
+V_old = tf.einsum('...ki,izj->...zkj', V, Wv) # [batch_size, n^{L+1}, A, n^L, d_v^L]
+
+K = tf.einsum('...ki,izj->...kjz', V, Wk) # [batch_size, n^{L+1}, n^L, d_k^L, A]
+V = tf.einsum('...ki,izj->...kjz', V, Wv) # [batch_size, n^{L+1}, n^L, d_v^L, A]
+
+# Add biases
+Qb = Q + tf.transpose(bq)
+Kb = K + tf.transpose(bk)
+Qv = V + tf.transpose(bv)
+
+Qb_old = Q_old + bq_old
+Kb_old = K_old + bk_old
+Qv_old = V_old + bv_old
+
+Attention_matrix_old = tf.matmul(Q_old,K_old, transpose_b=True) # [batch_size, n^{L+1}, A, n^L, n^L]
+Attention = tf.einsum('...kij,...zij->...jkz',Q,K) # [batch_size, n^{L+1}, A, n^L, n^L]
+tf.math.reduce_all(tf.equal(Attention,Attention_matrix_old)) # True
+# If we wanted attention heads in last dimension:
+Attention_new = tf.einsum('...kij,...zij->...kzj',Q,K) # [batch_size, n^{L+1}, n^L, n^L, A]
+
+Embeddings_old = tf.matmul(Attention_matrix_old, V_old) # [batch_size, n^{L+1}, (A,) n^L, d_v^L] # same as tf.matmul(Attention, V_old)
+
+Projected_embeddings_old = tf.einsum('...kim, mkz->...iz', Embeddings_old, Wo_old) # [batch_size, n^{L+1}, n^L, d^{L+1}] # Wo_new.shape == Wo_old.shape: [d_v^L, A, d^{L+1}]
+
+Embeddings_new = tf.einsum('...ijk, ...jmk ->...imk', Attention_new, V) # [batch_size, n^{L+1}, n^L, d_v^L, A]
+
+Projected_embeddings_new = tf.einsum('...imk, mkz->...iz', Embeddings_new, Wo_new) # [batch_size, n^{L+1}, n^L, d^{L+1}]
+
+tf.math.reduce_all(tf.equal(Projected_embeddings_old,Projected_embeddings_new)) # True
+
+# να δω για μαξ, εφαρμογή relu... softmax, attention scores....
+# Let's first see how to sum together (mean) attention heads (easy).
+Attention_new_mean_heads = tf.reduce_mean(Attention_new, axis=-1)
+# Now let's see how to compute attention scores.
+Attention_scores = tf.reduce_sum(Attention_new_mean_heads, axis=-1) # [batch_size, n^{L+1} ,n^L]
+smx = tf.keras.layers.Softmax(axis=-2)
+SoftSC = smx(tf.cast(Attention_scores,dtype=tf.float64)) # [batch_size, n^{L+1} ,n^L]
+winners = tf.reduce_max(SoftSC, axis=-1, keepdims=True)
+
+# Find
+
+# Test
+shaper2 = [1,5,4] # [batch_size, n^{L+1} ,n^L]
+SoftSC2= tf.random.uniform(
+    shaper2,
+    minval=-10,
+    maxval=10,
+    dtype=tf.dtypes.float32,
+    seed=None,
+    name=None
+)
+SoftSC2 = smx(SoftSC2)
+
+# Multiplied SoftSC2 to embeddings (same with scaling attention matrix's rows with similarity scores).
+Projected_embeddings_new_scaled = (tf.expand_dims(SoftSC2,axis=-1) * tf.cast(Projected_embeddings_new,dtype=tf.float32))
+# Below is old code, for the first edition of MyAttention class.
+
+# Find the length of each projected embedding (another way to measure similarity).
+Length_of_Projected_embeddings_new =  tf.sqrt(tf.reduce_sum(tf.square(tf.cast(Projected_embeddings_new,dtype=tf.float32)), -1)) # Can also be used with Projected_embeddings_new_scaled
+
+# Now, SoftSC and Length_of_Projected_embeddings_new have the same shape [batch_size, n^{L+1}, n^L] so the procedure could be the same.
+
+# Find winners and winner indices.
+winners2SC = tf.reduce_max(SoftSC2, axis=-1, keepdims=True) # [batch_size, n^{L+1}, 1]
+winner_indicesSC = tf.argmax(SoftSC2, axis=-1) # [batch_size, n^{L+1}]
+winners2_Emb = tf.reduce_max(Length_of_Projected_embeddings_new, axis=-1, keepdims=True) # [batch_size, n^{L+1}, 1]
+winner_indices_Emb = tf.argmax(Length_of_Projected_embeddings_new, axis=-1) # [batch_size, n^{L+1}]
+
+# Build a mask and apply it.
+mask_Emb = tf.expand_dims(tf.keras.backend.one_hot(indices=winner_indices_Emb, num_classes=4), axis=-1) # [batch_size, n^{L+1}, n^L, 1]
+mask_SC2 = tf.expand_dims(tf.keras.backend.one_hot(indices=winner_indicesSC, num_classes=4), axis=-1) # [batch_size, n^{L+1}, n^L, 1]
+
+# Aply mask and sum the zeros (sum n^L)
+Digit_Caps_SC2_scaled = (tf.reduce_sum(Projected_embeddings_new_scaled * mask_SC2, axis=-2)) # [batch_size, n^{L+1}]
+Digit_Caps_SC2 = (tf.reduce_sum(tf.cast(Projected_embeddings_new, dtype=tf.float32) * mask_SC2, axis=-2))
+tf.math.reduce_all(tf.equal(winners2SC * Digit_Caps_SC2,Digit_Caps_SC2_scaled))  # True
+
+# Do the same for the second criterion (Length)
+Digit_Caps_Emb = (tf.reduce_sum(tf.cast(Projected_embeddings_new, dtype=tf.float32) * mask_Emb, axis=-2))
+Digit_Caps_Emb_scaled = winners2SC * Digit_Caps_Emb
+
 shape = [12,2,6] # (D, A ,D_new)
 W = tf.random.uniform(
     shape,
@@ -8,6 +162,7 @@ W = tf.random.uniform(
     seed=None,
     name=None
 )
+
 shape2 = [2, 10, 3,12] # (batch_size, N_L+1, N, D)
 V = tf.random.uniform(
     shape2,
@@ -17,6 +172,8 @@ V = tf.random.uniform(
     seed=None,
     name=None
 )
+
+
 u = tf.matmul(V,W)
 u = tf.einsum('...ki,izj->...zkj',V,W)
 
