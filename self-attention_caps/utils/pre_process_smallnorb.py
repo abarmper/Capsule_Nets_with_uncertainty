@@ -28,7 +28,7 @@ MAX_DELTA = 2.0
 LOWER_CONTRAST = 0.5
 UPPER_CONTRAST = 1.5
 PARALLEL_INPUT_CALLS = 16
-
+AUTOTUNE = tf.data.AUTOTUNE
 
 def pre_process(ds):
     X = np.empty((SAMPLES, INPUT_SHAPE, INPUT_SHAPE, 2))
@@ -81,13 +81,33 @@ def generate_tf_data(X_train, y_train, X_test_patch, y_test, batch_size):
     dataset_train = dataset_train.map(generator,
         num_parallel_calls=PARALLEL_INPUT_CALLS)
     dataset_train = dataset_train.batch(batch_size)
-    dataset_train = dataset_train.prefetch(-1)
+    dataset_train = dataset_train.prefetch(AUTOTUNE)
 
     dataset_test = tf.data.Dataset.from_tensor_slices((X_test_patch, y_test))
     dataset_test = dataset_test.cache()
     dataset_test = dataset_test.map(generator,
         num_parallel_calls=PARALLEL_INPUT_CALLS)
     dataset_test = dataset_test.batch(1)
-    dataset_test = dataset_test.prefetch(-1)
+    dataset_test = dataset_test.prefetch(AUTOTUNE)
+    
+    return dataset_train, dataset_test
+
+def generate_tf_data_no_reconstructor(X_train, y_train, X_test_patch, y_test, batch_size):
+    dataset_train = tf.data.Dataset.from_tensor_slices((X_train, y_train))
+    # dataset_train = dataset_train.shuffle(buffer_size=SAMPLES) not needed if imported with tfds
+    dataset_train = dataset_train.map(random_patches,
+        num_parallel_calls=PARALLEL_INPUT_CALLS)
+    dataset_train = dataset_train.map(random_brightness,
+        num_parallel_calls=PARALLEL_INPUT_CALLS)
+    dataset_train = dataset_train.map(random_contrast,
+        num_parallel_calls=PARALLEL_INPUT_CALLS)
+
+    dataset_train = dataset_train.batch(batch_size)
+    dataset_train = dataset_train.prefetch(AUTOTUNE)
+
+    dataset_test = tf.data.Dataset.from_tensor_slices((X_test_patch, y_test))
+    dataset_test = dataset_test.cache()
+    dataset_test = dataset_test.batch(1)
+    dataset_test = dataset_test.prefetch(AUTOTUNE)
     
     return dataset_train, dataset_test

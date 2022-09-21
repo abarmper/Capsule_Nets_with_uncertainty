@@ -1,4 +1,5 @@
 {
+"model_name": "MNIST",
 "eps": 1e-20,
 "MNIST_INPUT_SHAPE": [
 28,
@@ -24,7 +25,7 @@
 "lmd_gen": 0.392,
 "lr_dec": 0.97,
 "batch_size": 8,
-"epochs": 10,
+"epochs": 2,
 "saved_model_dir": "bin",
 "tb_log_save_dir": "logs",
 "mnist_path": "mnist.npz",
@@ -37,5 +38,10 @@
 "pad_multimnist": 4,
 "deconvolution": 0,
 "multihead": 1,
-"original": 0
+"original": 0,
+"num_heads": 2,
+"algorithm_1_or_2": "RooMAV",
+"scale_the_embedding": 0,
+"use_agreement_criterion": 1,
+"no_reconstructor": 0
 }

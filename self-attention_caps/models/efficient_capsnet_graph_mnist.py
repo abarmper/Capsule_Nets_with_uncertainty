@@ -18,7 +18,7 @@ import tensorflow as tf
 from utils.layers import PrimaryCaps, FCCaps, Length, Mask, FCCapsMultihead
 
 
-def efficient_capsnet_graph(input_shape, multihead=False, original_convs=False):
+def efficient_capsnet_graph(input_shape, multihead=False, original_convs=False, num_heads=2, Algorithm = 'RooMAV', scale_the_embedding=True, use_agreement_criterion=True):
     """
     Efficient-CapsNet graph architecture.
 
@@ -27,6 +27,16 @@ def efficient_capsnet_graph(input_shape, multihead=False, original_convs=False):
     input_shape: list
         network input shape
     """
+    
+    if Algorithm == 'RooMAV':
+        Algo1 = True
+    elif Algorithm == 'RoWSS':
+        Algo1 = False
+    elif (Algorithm is None) and ((num_heads <=0)or(multihead==False)):
+        pass
+    else:
+        raise ValueError("Invalid argument in efficient_capsnet_graph. Set Algorithm appropriately")
+    
     inputs = tf.keras.Input(input_shape)
 
     if not original_convs:
@@ -47,7 +57,7 @@ def efficient_capsnet_graph(input_shape, multihead=False, original_convs=False):
         
 
     if multihead:
-        digit_caps, c = FCCapsMultihead(10,16, A=2, QKD=8)(x)
+        digit_caps, c = FCCapsMultihead(10,16, A=num_heads, QKD=int(16/num_heads), D_v=int(16/num_heads), Alg1=Algo1, scaled_emb=scale_the_embedding, agreement_scores=use_agreement_criterion)(x)
 
         # x = tf.keras.layers.Flatten()(x)
         # x = tf.keras.layers.Dense(num_of_primary_caps*10*16, activation=None, use_bias=False)(x)
@@ -89,7 +99,7 @@ def generator_graph(input_shape, deconv):
     return tf.keras.Model(inputs=inputs, outputs=x, name='Generator')
 
 
-def build_graph(input_shape, mode, verbose, deconv, multihead, original):
+def build_graph(input_shape, mode, verbose, deconv, multihead, original, num_heads, algorithm, scale_the_embedding, use_agreement_criterion, no_reconstruct):
     """
     Efficient-CapsNet graph architecture with reconstruction regularizer. The network can be initialize with different modalities.
 
@@ -105,7 +115,7 @@ def build_graph(input_shape, mode, verbose, deconv, multihead, original):
     y_true = tf.keras.layers.Input(shape=(10,))
     noise = tf.keras.layers.Input(shape=(10, 16))
 
-    efficient_capsnet = efficient_capsnet_graph(input_shape, multihead, original)
+    efficient_capsnet = efficient_capsnet_graph(input_shape, multihead, original, num_heads, algorithm, scale_the_embedding, use_agreement_criterion)
 
     if verbose:
         efficient_capsnet.summary()
@@ -120,19 +130,27 @@ def build_graph(input_shape, mode, verbose, deconv, multihead, original):
     
     generator = generator_graph(input_shape, deconv)
 
-    if verbose:
-        generator.summary()
-        print("\n\n")
+    if not no_reconstruct:
+        if verbose:
+            generator.summary()
+            print("\n\n")
 
     x_gen_train = generator(masked_by_y)
     x_gen_eval = generator(masked)
     x_gen_play = generator(masked_noised_y)
 
-    if mode == 'train':   
-        return tf.keras.models.Model([inputs, y_true], [digit_caps_len, x_gen_train], name='Efficinet_CapsNet_Generator')
+    if mode == 'train':  
+        if no_reconstruct:
+            return tf.keras.models.Model(inputs=inputs, outputs=digit_caps_len, name='Efficinet_CapsNet_No_Generator')
+        else: 
+            return tf.keras.models.Model([inputs, y_true], [digit_caps_len, x_gen_train], name='Efficinet_CapsNet_Generator')
     elif mode == 'test':
-        return tf.keras.models.Model(inputs, [digit_caps_len, x_gen_eval], name='Efficinet_CapsNet_Generator')
+        if no_reconstruct:
+            return tf.keras.models.Model(inputs=inputs, outputs=digit_caps_len, name='Efficinet_CapsNet_No_Generator')
+        else:
+            return tf.keras.models.Model(inputs, [digit_caps_len, x_gen_eval], name='Efficinet_CapsNet_Generator')
     elif mode == 'play':
+        # In play mode you need to have a generator.
         return tf.keras.models.Model([inputs, y_true, noise], [digit_caps_len, x_gen_play], name='Efficinet_CapsNet_Generator')
     else:
         raise RuntimeError('mode not recognized')

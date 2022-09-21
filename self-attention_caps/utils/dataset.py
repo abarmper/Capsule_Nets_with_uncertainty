@@ -121,5 +121,19 @@ class Dataset(object):
             dataset_train, dataset_test = pre_process_multimnist.generate_tf_data(self.X_train, self.y_train, self.X_test, self.y_test, self.config['batch_size'], self.config["shift_multimnist"])
         elif self.model_name == 'CIFAR10':
             dataset_train, dataset_test = pre_process_cifar10.generate_tf_data(self.X_train, self.y_train, self.X_test, self.y_test, self.config['batch_size'], self.config["patch_cifar10"])
+        else:
+            raise ValueError("Model_name must have the name of one of the 4 supported datasets: MNIST, SMALLNORB, MULTIMNIST, CIFAR10")
+        return dataset_train, dataset_test
 
+    def get_tf_data_no_reconstructor(self):
+        if self.model_name == 'MNIST':
+            dataset_train, dataset_test = pre_process_mnist.generate_tf_data_no_reconstructor(self.X_train, self.y_train, self.X_test, self.y_test, self.config['batch_size'])
+        elif self.model_name == 'SMALLNORB':
+            dataset_train, dataset_test = pre_process_smallnorb.generate_tf_data_no_reconstructor(self.X_train, self.y_train, self.X_test_patch, self.y_test, self.config['batch_size'])
+        elif self.model_name == 'MULTIMNIST':
+            dataset_train, dataset_test = pre_process_multimnist.generate_tf_data_no_reconstructor(self.X_train, self.y_train, self.X_test, self.y_test, self.config['batch_size'], self.config["shift_multimnist"])
+        elif self.model_name == 'CIFAR10':
+            dataset_train, dataset_test = pre_process_cifar10.generate_tf_data_no_reconstructor(self.X_train, self.y_train, self.X_test, self.y_test, self.config['batch_size'], self.config["patch_cifar10"])
+        else:
+            raise ValueError("Model_name must have the name of one of the 4 supported datasets: MNIST, SMALLNORB, MULTIMNIST, CIFAR10")
         return dataset_train, dataset_test

@@ -367,7 +367,7 @@ class MyAttention_Multihead_projection(tf.keras.layers.Layer):
         self.Wv = self.add_weight(shape=[self.D_model, self.A, self.D_v], initializer=self.kernel_initializer, name='W_v', trainable=True, dtype="float32") # [d^{L+1}, A, d_v^L] 
         self.Wq = self.add_weight(shape=[self.D_model, self.A, self.D_k], initializer=self.kernel_initializer, name='W_q', trainable=True, dtype="float32") # [d^{L+1}, A, d_k^L] 
         self.Wk = self.add_weight(shape=[self.D_model, self.A, self.D_k], initializer=self.kernel_initializer, name='W_k', trainable=True, dtype="float32") # [d^{L+1}, A, d_k^L] 
-        self.Wo = self.add_weight(shape=[self.A, self.D_v, self.D_out], initializer=self.kernel_initializer, name='W_o', trainable=True, dtype="float32") # [A, d_v^L, d^{L+1}]
+        self.Wo = self.add_weight(shape=[self.D_v, self.A, self.D_out], initializer=self.kernel_initializer, name='W_o', trainable=True, dtype="float32") # [d_v^L, A, d^{L+1}]
         
         if self.biases:
             # initialize biases.
@@ -407,7 +407,7 @@ class MyAttention_Multihead_projection(tf.keras.layers.Layer):
         # Finally, compute embeddings.
         Embeddings = tf.einsum('...ijk, ...jmk ->...imk', Attention_maps, V) # [batch_size, n^{L+1}, n^L, d_v^L, A]
         
-        Projected_embeddings = tf.einsum('...imk, mkz->...iz', Embeddings, self.Wo)  # [batch_size, n^{L+1}, n^L, d^{L+1}]
+        Projected_embeddings = tf.einsum('...imk, mkz->...iz', Embeddings, self.Wo)  # [batch_size, n^{L+1}, n^L, d^{L+1}] 
         
         if self.biases:
             Projected_embeddings = Projected_embeddings + self.bo
@@ -600,9 +600,9 @@ class FCCapsMultihead(tf.keras.layers.Layer):
     Attributes
     ----------
     N: int
-        number of digit capsules
+        number of digit capsules (n^{L+1})
     D: int
-        digit capsules dimension (number of properties)
+        digit capsules dimension (number of properties, d^{L+1})
     Alg1: bool
         If True, Algorithm 1 is chosen (called RooMAV). If False, Algorithm 2 is used (RoWSS).
     kernel_initilizer: str
@@ -621,7 +621,6 @@ class FCCapsMultihead(tf.keras.layers.Layer):
         If True, scale the resulting embeddings (DigitCaps) according to their Agreement Score.
     agreement_scores: bool
         There is one more variant if Alg1==False : Instead of picking rows by finding the maximum agreement score in each row, we pick rows by keeping the vector with the maximum length.
- 
     Methods
     -------
     call(inputs)
@@ -681,16 +680,16 @@ class FCCapsMultihead(tf.keras.layers.Layer):
             if self.agreement_scores:
                 Selection_criterion = SoftSC
             else:
-                Selection_criterion = tf.sqrt(tf.reduce_sum(tf.square(emb), -1) + tf.keras.backend.epsilon())
+                Selection_criterion = tf.sqrt(tf.reduce_sum(tf.square(emb), -1) + tf.keras.backend.epsilon()) # [batch_size, n^{L+1} ,n^L]
             Winner_indices = tf.argmax(Selection_criterion, axis=-1) # [batch_size, n^{L+1}]
             
             # Compute Mask
             Mask = tf.expand_dims(tf.keras.backend.one_hot(indices=Winner_indices, num_classes=self.input_N), axis=-1) # [batch_size, n^{L+1}, n^L, 1]
-            v = (tf.reduce_sum(emb * Mask, axis=-2))
+            s = (tf.reduce_sum(emb * Mask, axis=-2))
             if self.scaled_emb:
                 winners_SC = tf.reduce_max(SoftSC, axis=-1, keepdims=True) # [batch_size, n^{L+1}, 1]
-                v = winners_SC * v
-        
+                s = winners_SC * s
+            v = Squash()(s)
         return v, AttentionMaps
 
     def compute_output_shape(self, input_shape):

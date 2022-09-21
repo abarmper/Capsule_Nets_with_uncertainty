@@ -54,28 +54,45 @@ class CustomCallback(tf.keras.callbacks.Callback):
 
     def on_test_end(self, logs=None):
         self.tf_logger.info_message("Stop testing; got log: {}".format(logs))
-
+        
     def on_train_batch_end(self, batch, logs=None):
-        keys = list(logs.keys())
-        self.tf_logger.info_message("...Training: end of batch {}; got results: {}".format(batch, logs))
+        pass
+    
+    def on_train_batch_begin(self, batch, logs=None):
+        pass
+
+    # def on_train_batch_end(self, batch, logs=None):
+    #     keys = list(logs.keys())
+    #     self.tf_logger.info_message("...Training: end of batch {}; got results: {}".format(batch, logs))
 
 
-def get_callbacks(tb_log_save_path, saved_model_path, lr_dec, lr, log):
+def get_callbacks(tb_log_save_path, saved_model_path, lr_dec, lr, log=None, folder_log=None, no_reconstruction=False):
     tb = tf.keras.callbacks.TensorBoard(log_dir=tb_log_save_path, histogram_freq=0)
-
-    model_checkpoint = tf.keras.callbacks.ModelCheckpoint(saved_model_path, monitor='val_Efficient_CapsNet_accuracy',
-                                           save_best_only=True, save_weights_only=True, verbose=1)
+    if no_reconstruction:
+        model_checkpoint = tf.keras.callbacks.ModelCheckpoint(saved_model_path, monitor='val_accuracy',
+                                            save_best_only=True, save_weights_only=True, verbose=1)
+    else:
+        model_checkpoint = tf.keras.callbacks.ModelCheckpoint(saved_model_path, monitor='val_Efficient_CapsNet_accuracy',
+                                            save_best_only=True, save_weights_only=True, verbose=1)
 
     lr_decay = tf.keras.callbacks.LearningRateScheduler(learn_scheduler(lr_dec, lr))
 
-    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_CapsNet_accuracy', factor=0.9,
-                              patience=4, min_lr=0.00001, min_delta=0.0001, mode='max')
-
-    if log != None:
-        my_logger = CustomCallback(log)
-        return [tb, model_checkpoint, lr_decay, my_logger]
+    if no_reconstruction:
+        reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                patience=5, min_lr=0.00001, min_delta=0.0001, mode='max')
     else:
-        return [tb, model_checkpoint, lr_decay]
+        reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_Efficient_CapsNet_loss', factor=0.2,
+                              patience=5, min_lr=0.00001, min_delta=0.0001, mode='max')
+            
+    if folder_log is not None:
+        csv_logger = tf.keras.callbacks.CSVLogger(folder_log)
+        return [tb, model_checkpoint, lr_decay, reduce_lr, csv_logger]
+    if log != None:
+        # This logger is good but slow...
+        my_logger = CustomCallback(log)
+        return [tb, model_checkpoint, lr_decay, reduce_lr, my_logger]
+    else:
+        return [tb, model_checkpoint, reduce_lr, lr_decay]
 
 
 def marginLoss(y_true, y_pred):
@@ -98,11 +115,33 @@ def multiAccuracy(y_true, y_pred):
     acc /= 2
     return tf.reduce_mean(acc,axis=-1)
 
-def plotter_from_df(df, folder_name):
-
-    fig, ax = plt.subplots(figsize=(8, 8))
+def plotter_from_df(df, folder_name, no_reconstructor = False):
+    
+    if no_reconstructor:
+        fig, ax = plt.subplots(figsize=(8, 8))
+        # plot losses
+        plt.title('Train & Validation Loss')
+        plt.ylabel('Loss')
+        plt.xlabel('Epoch')
+        plt.plot(df.Epoch, df.loss, label='train loss')
+        plt.plot(df.Epoch, df.val_loss, label='val loss')
+        plt.legend(loc='upper right')
+        plt.savefig(f"{os.path.join(folder_name, 'loss.png')}")
+        fig, ax = plt.subplots(figsize=(8, 8))
+        
+        fig, ax = plt.subplots(figsize=(8, 8))
+        # plot losses
+        plt.title('Train & Validation Accuracy')
+        plt.ylabel('Accuracy')
+        plt.xlabel('Epoch')
+        plt.plot(df.Epoch, df.accuracy, label='train acc')
+        plt.plot(df.Epoch, df.val_accuracy, label='val acc')
+        plt.legend(loc='upper right')
+        plt.savefig(f"{os.path.join(folder_name, 'train_acc.png')}")
+        return
+    
     # plot losses
-    plt.title('Loss')
+    plt.title('Train & Validation Loss')
     plt.ylabel('Loss')
     plt.xlabel('Epoch')
     plt.plot(df.Epoch, df.loss, label='train loss')
@@ -132,7 +171,7 @@ def plotter_from_df(df, folder_name):
 
     fig, ax = plt.subplots(figsize=(8, 8))
     # plot losses
-    plt.title('Train & validation accuracy')
+    plt.title('Train & Validation Accuracy')
     plt.ylabel('Accuracy')
     plt.xlabel('Epoch')
     plt.plot(df.Epoch, df.Efficient_CapsNet_accuracy, label='train acc')

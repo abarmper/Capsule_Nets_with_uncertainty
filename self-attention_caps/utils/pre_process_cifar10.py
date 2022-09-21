@@ -24,6 +24,7 @@ CIFAR10_IMG_SIZE = 32
 CIFAR10_TRAIN_IMAGE_COUNT = 50000
 PARALLEL_INPUT_CALLS = 16
 PATCH_CIFAR10 = 24
+AUTOTUNE = tf.data.AUTOTUNE
 
 # normalize dataset
 def pre_process(image, label):
@@ -43,7 +44,7 @@ def generate_tf_data(X_train, y_train, X_test, y_test, batch_size, patch_size):
 
 	dataset_train = dataset_train.map(generator, num_parallel_calls=PARALLEL_INPUT_CALLS)
 	dataset_train = dataset_train.batch(batch_size)
-	dataset_train = dataset_train.prefetch(-1)
+	dataset_train = dataset_train.prefetch(AUTOTUNE)
 
 	dataset_test = tf.data.Dataset.from_tensor_slices((X_test, y_test))
 
@@ -51,6 +52,24 @@ def generate_tf_data(X_train, y_train, X_test, y_test, batch_size, patch_size):
 	dataset_test = dataset_test.map(generator,
 	num_parallel_calls=PARALLEL_INPUT_CALLS)
 	dataset_test = dataset_test.batch(batch_size)
-	dataset_test = dataset_test.prefetch(-1)
+	dataset_test = dataset_test.prefetch(AUTOTUNE)
+
+	return dataset_train, dataset_test
+
+def generate_tf_data_no_reconstructor(X_train, y_train, X_test, y_test, batch_size, patch_size):
+	dataset_train = tf.data.Dataset.from_tensor_slices((X_train,y_train))
+	dataset_train = dataset_train.map(center_patches,
+	   num_parallel_calls=PARALLEL_INPUT_CALLS)
+	dataset_train = dataset_train.shuffle(buffer_size=CIFAR10_TRAIN_IMAGE_COUNT)
+
+	dataset_train = dataset_train.batch(batch_size)
+	dataset_train = dataset_train.prefetch(AUTOTUNE)
+
+	dataset_test = tf.data.Dataset.from_tensor_slices((X_test, y_test))
+
+	dataset_test = dataset_test.cache()
+
+	dataset_test = dataset_test.batch(batch_size)
+	dataset_test = dataset_test.prefetch(AUTOTUNE)
 
 	return dataset_train, dataset_test

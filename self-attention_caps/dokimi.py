@@ -115,7 +115,7 @@ winners = tf.reduce_max(SoftSC, axis=-1, keepdims=True)
 
 # Test
 shaper2 = [1,5,4] # [batch_size, n^{L+1} ,n^L]
-SoftSC2= tf.random.uniform(
+SoftSC2= tf.math.random.uniform(
     shaper2,
     minval=-10,
     maxval=10,
@@ -154,7 +154,7 @@ Digit_Caps_Emb = (tf.reduce_sum(tf.cast(Projected_embeddings_new, dtype=tf.float
 Digit_Caps_Emb_scaled = winners2SC * Digit_Caps_Emb
 
 shape = [12,2,6] # (D, A ,D_new)
-W = tf.random.uniform(
+W = tf.math.random.uniform(
     shape,
     minval=0,
     maxval=None,
@@ -164,7 +164,7 @@ W = tf.random.uniform(
 )
 
 shape2 = [2, 10, 3,12] # (batch_size, N_L+1, N, D)
-V = tf.random.uniform(
+V = tf.math.random.uniform(
     shape2,
     minval=0,
     maxval=None,
@@ -178,7 +178,7 @@ u = tf.matmul(V,W)
 u = tf.einsum('...ki,izj->...zkj',V,W)
 
 shape3 = [2,6] # (batch_size, N_L+1, N, D)
-b_v = tf.random.uniform(
+b_v = tf.math.random.uniform(
     shape3,
     minval=50,
     maxval=100,
@@ -188,7 +188,7 @@ b_v = tf.random.uniform(
 )
 
 shape4 = [6*2,12] # (A * D_new, D_out)
-W_o = tf.random.uniform(
+W_o = tf.math.random.uniform(
     shape4,
     minval=-1,
     maxval=1,
