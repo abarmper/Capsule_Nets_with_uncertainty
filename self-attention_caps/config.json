@@ -43,5 +43,6 @@
 "algorithm_1_or_2": "RooMAV",
 "scale_the_embedding": 0,
 "use_agreement_criterion": 1,
-"no_reconstructor": 0
+"no_reconstructor": 0,
+"val_size": 0.1
 }

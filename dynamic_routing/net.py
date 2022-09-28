@@ -14,6 +14,8 @@ import math
 
 from torch.optim import lr_scheduler
 from torch.autograd import Variable
+from torch.utils.data.sampler import SubsetRandomSampler
+from smallnorb import SmallNORB
 
 import logging
 import os
@@ -129,7 +131,7 @@ class AgreementRouting(nn.Module):
         if self.n_iterations > 0:
 
             b_batch = self.b.expand((batch_size, input_caps, output_caps))
-            for r in range(self.n_iterations):
+            for r in range(self.n_iterations - 1):
                 v = v.unsqueeze(1)
                 b_batch = b_batch + (u_predict * v).sum(-1)
 
@@ -254,13 +256,13 @@ class CapsNet(nn.Module):
 
 class ReconstructionNet(nn.Module):
     """
-    Decoder network in figure 2. Acts as regularizer.
+    Decoder network. Acts as regularizer.
     """
-    def __init__(self, n_dim=16, n_classes=10, in_channels=1):
+    def __init__(self, n_dim=16, n_classes=10, in_channels=1, out_hw = 28):
         super(ReconstructionNet, self).__init__()
         self.fc1 = nn.Linear(n_dim * n_classes, 512)
         self.fc2 = nn.Linear(512, 1024)
-        self.fc3 = nn.Linear(1024, in_channels * 28 * 28) # 28 == hight == width
+        self.fc3 = nn.Linear(1024, in_channels * out_hw * out_hw) # 28 == hight == width
         self.n_dim = n_dim
         self.n_classes = n_classes
 
@@ -390,6 +392,17 @@ class Logger():
             message = str(arg) + ": " + str(getattr(args, arg))
             self.logger.info(message)
 
+def produce_splitters(train_size, valid_size=0.1):
+    '''
+    example of valid_size input: 0.2
+    '''
+    indices = list(range(train_size))
+    split = int(np.floor(valid_size * train_size))
+    np.random.shuffle(indices)
+    train_idx, valid_idx = indices[split:], indices[:split]
+    train_sampler = SubsetRandomSampler(train_idx)
+    valid_sampler = SubsetRandomSampler(valid_idx)
+    return train_sampler, valid_sampler
 
 
 if __name__ == '__main__':
@@ -402,7 +415,7 @@ if __name__ == '__main__':
     # Training settings
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dataset', type=str, default="MNIST",
-                        help='choose between MNIST (default) or Fashion-MNIST or CIFAR10')
+                        help='choose between MNIST (default) or Fashion-MNIST or CIFAR10 or smallNORB')
     parser.add_argument('--dataset_file', type=str, default="../../data",
                         help='set the directory where the dataset is/will be located (default: ../../data)')
     parser.add_argument('--batch-size', type=int, default=32, metavar='N',
@@ -442,60 +455,102 @@ if __name__ == '__main__':
     # DataLoader is an iterator over the dataset which provides features like
     # data batching, shuffling and loading data in parallel using many workers.
     # The only transformations on images is the shift in any direction of up to 2 pixels.
+
     if args.dataset == "Fashion-MNIST":
-        train_loader = torch.utils.data.DataLoader(
-            datasets.FashionMNIST(args.dataset_file, train=True, download=True,
-                        transform=transforms.Compose([
-                            transforms.Pad(2), transforms.RandomCrop(28),
-                            transforms.ToTensor()
-                        ])),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
+        dataset_train = datasets.FashionMNIST(args.dataset_file, train=True, download=True,
+                        transform=transforms.Compose([transforms.ToTensor(),
+                            transforms.Normalize((0.2860,), (0.3530,)), # mean and std of FashionMNIST dataset
+                            transforms.Pad(2), transforms.RandomCrop(28)
+                        ]))
+        train_sampler, valid_sampler = produce_splitters(len(dataset_train), 0.1)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, sampler=train_sampler, **kwargs)
+        valid_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, sampler=valid_sampler, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
             datasets.FashionMNIST(args.dataset_file, train=False, transform=transforms.Compose([
-                transforms.ToTensor()
+                transforms.ToTensor(),
+                transforms.Normalize((0.2860,), (0.3530,))
             ])),
             batch_size=args.test_batch_size, shuffle=False, **kwargs)
         output_classes = 10
         in_channels = 1
         types_of_primary_caps = 32
+        input_image_dimension = 28
 
     elif args.dataset == "MNIST":
-        train_loader = torch.utils.data.DataLoader(
-            datasets.MNIST(args.dataset_file, train=True, download=True,
-                        transform=transforms.Compose([
-                            transforms.Pad(2), transforms.RandomCrop(28),
-                            transforms.ToTensor()
-                        ])),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
+        dataset_train = datasets.FashionMNIST(args.dataset_file, train=True, download=True,
+                        transform=transforms.Compose([transforms.ToTensor(),
+                            transforms.Normalize((0.1307,), (0.3081,)), # mean and std of MNIST dataset
+                            transforms.Pad(2), transforms.RandomCrop(28)
+                        ]))
+        train_sampler, valid_sampler = produce_splitters(len(dataset_train), 0.1)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, sampler=train_sampler, **kwargs)
+        valid_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, sampler=valid_sampler, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
-            datasets.MNIST(args.dataset_file, train=False, transform=transforms.Compose([
-                transforms.ToTensor()
+            datasets.FashionMNIST(args.dataset_file, train=False, transform=transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.1307,), (0.3081,))
             ])),
             batch_size=args.test_batch_size, shuffle=False, **kwargs)
         output_classes = 10
         in_channels = 1
         types_of_primary_caps = 32
+        input_image_dimension = 28
 
     elif args.dataset == "CIFAR10":
-        train_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10(args.dataset_file, train=True, download=True,
-                        transform=transforms.Compose([
-                            transforms.Pad(2), transforms.RandomCrop(28),
-                            transforms.ToTensor()
-                        ])),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
+        
+        dataset_train = datasets.FashionMNIST(args.dataset_file, train=True, download=True,
+                        transform=transforms.Compose([transforms.ToTensor(),
+                            transforms.Normalize((0.4914, 0.4821, 0.4466), (0.2470, 0.2435, 0.2616)), # mean and std of MNIST dataset
+                            transforms.RandomCrop(28)
+                        ]))
+        train_sampler, valid_sampler = produce_splitters(len(dataset_train), 0.1)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, sampler=train_sampler, **kwargs)
+        valid_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, sampler=valid_sampler, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10(args.dataset_file, train=False, transform=transforms.Compose([
-                transforms.CenterCrop(28), transforms.ToTensor()
+            datasets.FashionMNIST(args.dataset_file, train=False, transform=transforms.Compose([
+                transforms.ToTensor(),
+                transforms.CenterCrop(28),
+                transforms.Normalize((0.4914, 0.4821, 0.4466), (0.2470, 0.2435, 0.2616))
             ])),
             batch_size=args.test_batch_size, shuffle=False, **kwargs)
-
         output_classes = 11 # 10 + "none-of-the-above" category (see Hinton's paper on dynamic routing section 7)
         in_channels = 3
         types_of_primary_caps = 64
+        input_image_dimension = 28
+    
+    elif args.dataset == "smallNORB":
+        transforms_train =transforms.Compose([
+                transforms.Resize(48),
+                transforms.RandomCrop(32),
+                transforms.ColorJitter(brightness=32./255, contrast=0.5),
+                transforms.ToTensor(),
+            ])
+        transforms_val =transforms.Compose([
+                transforms.Resize(48),
+                transforms.CenterCrop(32),
+                transforms.ToTensor(),
+            ])
+        transforms_test =transforms.Compose([
+                transforms.Resize(48),
+                transforms.CenterCrop(32),
+                transforms.ToTensor(),
+            ])
+        dataset_train = SmallNORB(args.dataset_file, train=True, download=True, transform=transforms_train)
+        dataset_val = SmallNORB(args.dataset_file, train=True, download=True, transform=transforms_val)
+        dataset_test = SmallNORB(args.dataset_file, train=False, download=True, transform=transforms_test)
+
+        train_sampler, valid_sampler = produce_splitters(len(dataset_train), 0.1)
+        train_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, sampler=train_sampler, **kwargs)
+        valid_loader = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, sampler=valid_sampler, **kwargs)
+
+        test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.test_batch_size, shuffle=False, **kwargs)
+        output_classes = 5
+        in_channels = 2
+        types_of_primary_caps = 64
+        input_image_dimension = 32
 
     else:
         raise ValueError("Invalid dataset argument.")
@@ -505,7 +560,7 @@ if __name__ == '__main__':
                     input_channels=in_channels, types_of_primary_caps=types_of_primary_caps, argmax=args.with_argmax, arg_max_ones=args.without_argmax_one)
 
     if args.with_reconstruction:
-        reconstruction_model = ReconstructionNet(16, output_classes, in_channels)
+        reconstruction_model = ReconstructionNet(16, output_classes, in_channels, out_hw=input_image_dimension)
         reconstruction_alpha = 0.0005
         model = CapsNetWithReconstruction(model, reconstruction_model)
 
@@ -549,11 +604,11 @@ if __name__ == '__main__':
                     epoch, batch_idx * len(data), len(train_loader.dataset),
                     100. * batch_idx / len(train_loader), loss.data.item()))
 
-        train_loss /= len(test_loader.dataset)
+        train_loss /= len(train_loader.dataset)
         return train_loss
             
 
-    def test(epoch):
+    def test(epoch, val_or_test_loader):
         """
         Function used to test the Capsule network.
 
@@ -565,7 +620,7 @@ if __name__ == '__main__':
         test_loss = 0
         correct = 0
         with torch.no_grad():
-            for data, target in test_loader:
+            for data, target in val_or_test_loader:
                 if args.cuda:
                     data, target = data.cuda(), target.cuda()
                 data, target = Variable(data), Variable(target)# Variables are depricated.
@@ -584,17 +639,17 @@ if __name__ == '__main__':
                 pred = probs.data.max(1, keepdim=True)[1]  # get the index of the max probability
                 correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
-            test_loss /= len(test_loader.dataset)
-            acc = 100. * correct / len(test_loader.dataset)
+            test_loss /= len(val_or_test_loader.dataset)
+            acc = 100. * correct / len(val_or_test_loader.dataset)
             log.info_message('Test Epoch:{} Average loss: {:.4f}, Accuracy: {}/{} ({:.1f}%)\n'.format(epoch, 
-            test_loss, correct, len(test_loader.dataset), acc.data.item()))
+            test_loss, correct, len(val_or_test_loader.dataset), acc.data.item()))
         return test_loss, acc.data.item()
 
     log.info_message(f"Starting training... for {args.epochs} epochs.\n")
     test_loss =[]; train_loss = []; test_acc = []; best_loss1 = +Inf; best_acc1 = -1
     for epoch in range(1, args.epochs + 1):
         train_loss1 = train(epoch)
-        test_loss1, test_acc1 = test(epoch)
+        test_loss1, test_acc1 = test(epoch, valid_loader)
         scheduler.step(test_loss1) # scheduler adapts the learning rate according to the evaluation loss 
                                     # (if it dosent decrease for more than patience steps, the learning rate is decreased).
         if test_loss1 < best_loss1 and test_acc1 > best_acc1:
@@ -613,15 +668,18 @@ if __name__ == '__main__':
 
     # Save data to csv.
     train_loss_dict = {'Epoch' : np.arange(1,args.epochs + 1), 'train_loss' : train_loss}
-    test_loss_dict = {'Epoch' : np.arange(1,args.epochs + 1), 'test_loss' : test_loss}
-    test_acc_dict = {'Epoch' : np.arange(1,args.epochs + 1), 'test_acc' : test_acc}
+    test_loss_dict = {'Epoch' : np.arange(1,args.epochs + 1), 'val_loss' : test_loss}
+    test_acc_dict = {'Epoch' : np.arange(1,args.epochs + 1), 'val_acc' : test_acc}
 
     df_train_loss = pd.DataFrame(train_loss_dict) 
     df_test_loss = pd.DataFrame(test_loss_dict) 
     df_test_acc = pd.DataFrame(test_acc_dict) 
 
-    df_train_loss.to_csv(f"{os.path.join(folder_name, 'test_loss.csv')}") 
-    df_test_loss.to_csv(f"{os.path.join(folder_name, 'train_loss.csv')}") 
-    df_test_acc.to_csv(f"{os.path.join(folder_name, 'test_acc.csv')}")
-
+    df_train_loss.to_csv(f"{os.path.join(folder_name, 'train_loss.csv')}") 
+    df_test_loss.to_csv(f"{os.path.join(folder_name, 'val_loss.csv')}") 
+    df_test_acc.to_csv(f"{os.path.join(folder_name, 'val_acc.csv')}")
+    log.info_message("Evaluating test loss and accuracy...")
+    test_loss_all, test_acc_all = test(epoch, test_loader)
+    log.info_message(f"Test loss: {test_loss_all},  Test accuracy: {test_acc_all}")
+    log.info_message("Evaluation finished.")
     log.info_message("Finished.")
