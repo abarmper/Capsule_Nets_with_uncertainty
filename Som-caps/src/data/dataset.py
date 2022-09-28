@@ -11,6 +11,7 @@ from tensorflow._api.v2 import data
 from tensorflow.python.keras.utils.tf_utils import dataset_is_infinite
 import tensorflow_datasets as tfds
 from tqdm.notebook import tqdm
+from sklearn.model_selection import StratifiedShuffleSplit
 
 AUTOTUNE = tf.data.AUTOTUNE
 PARALLEL_INPUT_CALLS = 16
@@ -28,6 +29,9 @@ MULTIMNIST_IMG_SIZE = 36
 MULTIMNIST_PAD = 4
 MULTIMNIST_SHIFT = 6
 
+VALIDATION_SIZE_SPLIT = 0.1
+
+
 class Dataset(object):
     '''
     Calss that handles the data (gets the desired data, applyies transformations etc.)
@@ -36,6 +40,7 @@ class Dataset(object):
         self.class_names = None
         self.ds_train = None
         self.ds_test = None
+        self.ds_val = None
         self.X_train = None
         self.y_train = None
         self.X_test = None
@@ -83,7 +88,15 @@ class Dataset(object):
     #     ds_test = ds_test.batch(self.batch_size)
     #     ds_test = ds_test.cache()
     #     ds_test = ds_test.prefetch(tf.data.AUTOTUNE)
-
+    
+    def split_to_train_val(self, X, y):  
+        sss = StratifiedShuffleSplit(n_splits=1, test_size=VALIDATION_SIZE_SPLIT, random_state=42)
+        for train_index, val_index in sss.split(X, y):
+            print("TRAIN:", train_index, "TEST:", val_index)
+            X_train, X_val = X[train_index], X[val_index]
+            y_train, y_val = y[train_index], y[val_index]
+        return (X_train, y_train), (X_val, y_val)
+    
     def generator(self, image, label):
         return (image, label), (label, image)
 
@@ -93,24 +106,26 @@ class Dataset(object):
     def get_MNIST_data(self):
         train, test = tf.keras.datasets.mnist.load_data()
         images, labels = train
+        (images_train, labels_train), (images_val, labels_val) = self.split_to_train_val(images, labels)
         # unsqueeze = add one last dimension (channels)
-        images = np.expand_dims(images, axis=-1) # keras convolutional layers require shape of format: (Batch_size, height, width, channels)
-        images = (images/255.).astype(np.float32)
-        self.ds_train = tf.data.Dataset.from_tensor_slices((images, labels)).shuffle(100)
+        images_train = np.expand_dims(images_train, axis=-1) # keras convolutional layers require shape of format: (Batch_size, height, width, channels)
+        images_train = (images_train/255.).astype(np.float32)
+        self.ds_train = tf.data.Dataset.from_tensor_slices((images_train, labels_train)).shuffle(100)
         if self.gen:
             self.ds_train = self.ds_train.map(self.generator, num_parallel_calls=PARALLEL_INPUT_CALLS)
         self.ds_train = self.ds_train.batch(self.batch_size).prefetch(AUTOTUNE)
-        self.X_train, self.y_train = tf.convert_to_tensor(images), tf.convert_to_tensor(labels, dtype=tf.int32)
+        self.X_train, self.y_train = tf.convert_to_tensor(images_train), tf.convert_to_tensor(labels_train, dtype=tf.int32)
+        
 
-        images, labels = test
+        
         # unsqueeze = add one last dimension (channels)
-        images = np.expand_dims(images, axis=-1)
-        images = (images/255.).astype(np.float32)
-        self.ds_val = tf.data.Dataset.from_tensor_slices((images, labels))
+        images_val = np.expand_dims(images_val, axis=-1)
+        images_val = (images_val/255.).astype(np.float32)
+        self.ds_val = tf.data.Dataset.from_tensor_slices((images_val, labels_val))
         if self.gen:
             self.ds_val = self.ds_val.map(self.generator, num_parallel_calls=PARALLEL_INPUT_CALLS)
         self.ds_val= self.ds_val.batch(self.batch_size).prefetch(AUTOTUNE)
-        self.X_val, self.y_val = tf.convert_to_tensor(images), tf.convert_to_tensor(labels, dtype=tf.int32)
+        self.X_val, self.y_val = tf.convert_to_tensor(images_val), tf.convert_to_tensor(labels_val, dtype=tf.int32)
         
         images, labels = test
         # unsqueeze = add one last dimension (channels)
@@ -126,25 +141,25 @@ class Dataset(object):
     def get_CIFAR_data(self):
         train, test = tf.keras.datasets.cifar10.load_data()
         images, labels = train
-        
+        (images_train, labels_train), (images_val, labels_val) = self.split_to_train_val(images, labels)
         # unsqueeze = add one last dimension (channels)
-        images = np.expand_dims(images, axis=-1) # keras convolutional layers require shape of format: (Batch_size, height, width, channels)
-        images = (images/255.).astype(np.float32)
-        self.ds_train = tf.data.Dataset.from_tensor_slices((images, labels)).shuffle(100)
+        images_train = np.expand_dims(images_train, axis=-1) # keras convolutional layers require shape of format: (Batch_size, height, width, channels)
+        images_train = (images_train/255.).astype(np.float32)
+        self.ds_train = tf.data.Dataset.from_tensor_slices((images_train, labels_train)).shuffle(100)
         if self.gen:
             self.ds_train.map(self.generator, num_parallel_calls=PARALLEL_INPUT_CALLS)
         self.ds_train = self.ds_train.batch(self.batch_size).prefetch(AUTOTUNE)
-        self.X_train, self.y_train = tf.convert_to_tensor(images), tf.convert_to_tensor(labels, dtype=tf.int32)
+        self.X_train, self.y_train = tf.convert_to_tensor(images_train), tf.convert_to_tensor(labels_train, dtype=tf.int32)
 
-        images, labels = test
+        
         # unsqueeze = add one last dimension (channels)
-        images = np.expand_dims(images, axis=-1)
-        images = (images/255.).astype(np.float32)
-        self.ds_val = tf.data.Dataset.from_tensor_slices((images, labels))
+        images_val = np.expand_dims(images_val, axis=-1)
+        images_val = (images_val/255.).astype(np.float32)
+        self.ds_val = tf.data.Dataset.from_tensor_slices((images_val, labels_val))
         if self.gen:
             self.ds_val = self.ds_val.map(self.generator, num_parallel_calls=PARALLEL_INPUT_CALLS)
         self.ds_val= self.ds_val.batch(self.batch_size).prefetch(AUTOTUNE)
-        self.X_val, self.y_val = tf.convert_to_tensor(images), tf.convert_to_tensor(labels, dtype=tf.int32)
+        self.X_val, self.y_val = tf.convert_to_tensor(images_val), tf.convert_to_tensor(labels_val, dtype=tf.int32)
         
         images, labels = test
         # unsqueeze = add one last dimension (channels)
@@ -160,24 +175,24 @@ class Dataset(object):
     def get_FASHION_MNIST_data(self):
         train, test = tf.keras.datasets.fashion_mnist.load_data()
         images, labels = train
+        (images_train, labels_train), (images_val, labels_val) = self.split_to_train_val(images, labels)
         # unsqueeze = add one last dimension (channels)
-        images = np.expand_dims(images, axis=-1) # keras convolutional layers require shape of format: (Batch_size, height, width, channels)
-        images = (images/255.).astype(np.float32)
-        self.ds_train = self.ds_train = tf.data.Dataset.from_tensor_slices((images, labels)).shuffle(100)
+        images_train = np.expand_dims(images_train, axis=-1) # keras convolutional layers require shape of format: (Batch_size, height, width, channels)
+        images_train = (images_train/255.).astype(np.float32)
+        self.ds_train = self.ds_train = tf.data.Dataset.from_tensor_slices((images_train, labels_train)).shuffle(100)
         if self.gen:
             self.ds_train.map(self.generator, num_parallel_calls=PARALLEL_INPUT_CALLS)
         self.ds_train.batch(self.batch_size).prefetch(AUTOTUNE)
-        self.X_train, self.y_train = tf.convert_to_tensor(images), tf.convert_to_tensor(labels, dtype=tf.int32)
+        self.X_train, self.y_train = tf.convert_to_tensor(images_train), tf.convert_to_tensor(labels_train, dtype=tf.int32)
 
-        images, labels = test
         # unsqueeze = add one last dimension (channels)
-        images = np.expand_dims(images, axis=-1)
-        images = (images/255.).astype(np.float32)
-        self.ds_val = tf.data.Dataset.from_tensor_slices((images, labels))
+        images_val = np.expand_dims(images_val, axis=-1)
+        images_val = (images_val/255.).astype(np.float32)
+        self.ds_val = tf.data.Dataset.from_tensor_slices((images_val, labels_val))
         if self.gen:
             self.ds_val = self.ds_val.map(self.generator, num_parallel_calls=PARALLEL_INPUT_CALLS)
         self.ds_val= self.ds_val.batch(self.batch_size).prefetch(AUTOTUNE)
-        self.X_val, self.y_val = tf.convert_to_tensor(images), tf.convert_to_tensor(labels, dtype=tf.int32)
+        self.X_val, self.y_val = tf.convert_to_tensor(images_val), tf.convert_to_tensor(labels_val, dtype=tf.int32)
 
         images, labels = test
         # unsqueeze = add one last dimension (channels)
@@ -199,10 +214,17 @@ class Dataset(object):
             as_supervised=False,
             with_info=True)
         self.X_train, self.y_train = self.smallnorb_pre_process(self.ds_train)
+        (self.X_train, self.y_train), (self.X_val, self.y_val) = self.split_to_train_val(self.X_train, self.y_train)
+        
         self.X_test, self.y_test = self.smallnorb_pre_process(self.ds_test)
 
         self.X_train, self.y_train = self.smallnorb_standardize(self.X_train, self.y_train)
         self.X_train, self.y_train = self.smallnorb_rescale(self.X_train, self.y_train)
+        
+        self.X_val, self.y_val = self.smallnorb_standardize(self.X_val, self.y_val)
+        self.X_val, self.y_val = self.smallnorb_rescale(self.X_val, self.y_val) 
+        self.X_val_patch, self.y_val = self.smallnorb_test_patches(self.X_val, self.y_val)
+        
         self.X_test, self.y_test = self.smallnorb_standardize(self.X_test, self.y_test)
         self.X_test, self.y_test = self.smallnorb_rescale(self.X_test, self.y_test) 
         self.X_test_patch, self.y_test = self.smallnorb_test_patches(self.X_test, self.y_test)
@@ -223,12 +245,12 @@ class Dataset(object):
         self.ds_train = self.ds_train.batch(self.batch_size)
         self.ds_train = self.ds_train.prefetch(AUTOTUNE)
         
-        self.ds_val = tf.data.Dataset.from_tensor_slices((self.X_test_patch, self.y_test))
+        self.ds_val = tf.data.Dataset.from_tensor_slices((self.X_val_patch, self.y_val))
         
         if self.gen:
             self.ds_val = self.ds_val.map(self.generator,
                 num_parallel_calls=PARALLEL_INPUT_CALLS)
-        self.ds_val = self.ds_val.batch(self.batch_size) # Could be set to 1 on testing.
+        self.ds_val = self.ds_val.batch(self.batch_size)
         self.ds_val = self.ds_val.prefetch(AUTOTUNE)
 
         self.ds_test = tf.data.Dataset.from_tensor_slices((self.X_test_patch, self.y_test))
@@ -245,11 +267,16 @@ class Dataset(object):
                 
     def get_MULTIMNIST_data(self):
         (self.X_train, self.y_train), (self.X_test, self.y_test) = tf.keras.datasets.mnist.load_data()
+        (self.X_train, self.y_train), (self.X_val, self.y_val) = self.split_to_train_val(self.X_train, self.y_train)
         # prepare the data
         self.X_train = self.multimnist_pad_dataset(self.X_train, MULTIMNIST_PAD)
+        self.X_val = self.multimnist_pad_dataset(self.X_val, MULTIMNIST_PAD)
         self.X_test = self.multimnist_pad_dataset(self.X_test, MULTIMNIST_PAD)
+        
         self.X_train, self.y_train = self.multimnist_pre_process(self.X_train, self.y_train)
+        self.X_val, self.y_val = self.multimnist_pre_process(self.X_val, self.y_val)
         self.X_test, self.y_test = self.multimnist_pre_process(self.X_test, self.y_test)
+        
         self.class_names = list(range(10))
 
 
@@ -281,9 +308,9 @@ class Dataset(object):
                                                            output_signature=(tf.TensorSpec(shape=input_shape,dtype=tf.float32),
                                                                              tf.TensorSpec(shape=[10], dtype=tf.float32)))
             self.ds_train = self.ds_train.batch(self.batch_size).prefetch(AUTOTUNE)
-            self.ds_val = tf.data.Dataset.from_generator(self.multimnist_generator_validation_no_reconstructor(self.X_test, self.y_test, MULTIMNIST_SHIFT),
-                                                        output_shapes=((input_shape),(None, 10)),
-                                                        output_types=((tf.float32), (tf.float32)))
+            self.ds_val = tf.data.Dataset.from_generator(self.multimnist_generator_validation_no_reconstructor(self.X_val, self.y_val, MULTIMNIST_SHIFT),
+                                                        output_signature=(tf.TensorSpec(shape=input_shape,dtype=tf.float32),
+                                                                             tf.TensorSpec(shape=[10], dtype=tf.float32)))
             self.ds_val = self.ds_val.batch(self.batch_size).prefetch(AUTOTUNE)
             
             # Test dataset
@@ -344,9 +371,10 @@ class Dataset(object):
         
     def multimnist_generator_validation(self, images,labels,shift):
         def multi_mnist_val():
-            for i in range(len(images)):
+            while True:
+                i = np.random.randint(len(images))
                 j = np.random.randint(len(images))
-                while np.all(labels[i]==labels[j]):
+                while np.all(images[i]==images[j]):
                     j = np.random.randint(len(images))
                 base = self.multimnist_shift_images(images[i:i+1],np.random.randint(-shift,shift+1,(1,2)),shift)[0]
                 top = self.multimnist_shift_images(images[j:j+1],np.random.randint(-shift,shift+1,(1,2)),shift)[0]

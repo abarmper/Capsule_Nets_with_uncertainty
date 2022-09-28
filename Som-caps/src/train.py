@@ -71,6 +71,7 @@ else:
     if_cifar_Set_true = False
 
 small = True if args.small else False
+small = True
 reduced_votes = False if args.non_reduced_votes else True
 softmax = True if args.with_softmax else False
 radical = True if args.radical else False
@@ -98,7 +99,7 @@ thetas_list = list(map(float, args.thetas.split(',')))
 
 log.info_message("Load dataset... \n")
 ds = Dataset(args.dataset, args.batch_size, gen)
-log.info_message("Dataset loaded. \n")
+log.info_message("Dataset instance created (data loaded). \n")
 
 # Set number of transformation matrices.
 transformation_matrices_for_each_capsule = len(ds.class_names) if args.transformation_matrices_for_each_capsule is None else args.transformation_matrices_for_each_capsule
@@ -166,7 +167,7 @@ if not gen:
         margin_loss = MarginLoss(sparce=True, num_classes=10)
         model.compile(loss=[margin_loss],
         metrics=[MultiAccuracy()],optimizer=tf.keras.optimizers.Nadam(args.lr))
-        history = model.fit(ds.ds_train, epochs=args.epochs, validation_data=ds.ds_val, steps_per_epoch=10*int(ds.y_train.shape[0] / args.batch_size), validation_steps=10*int(ds.y_test.shape[0] / args.batch_size), callbacks=get_callbacks(custom_tensorboard_path, custom_model_path, logger_callback, log_path))
+        history = model.fit(ds.ds_train, epochs=args.epochs, validation_data=ds.ds_val, steps_per_epoch=10*int(ds.y_train.shape[0] / args.batch_size), validation_steps=10*int(ds.y_val.shape[0] / args.batch_size), callbacks=get_callbacks(custom_tensorboard_path, custom_model_path, logger_callback, log_path))
 else: 
     if args.dataset != 'SMALLNORB' and args.dataset != 'MULTIMNIST':
         margin_loss = MarginLoss(sparce=False, num_classes=10)
@@ -182,7 +183,7 @@ else:
         margin_loss = MarginLoss(sparce=True, num_classes=10)
         model.compile(loss=[margin_loss, 'mse', 'mse'], loss_weights=[0.8, 0.1, 0.1],
         metrics=[MultiAccuracy()],optimizer=tf.keras.optimizers.Nadam(args.lr))
-        history = model.fit(ds.ds_train, epochs=args.epochs, validation_data=ds.ds_val, steps_per_epoch=10*int(ds.y_train.shape[0] / args.batch_size), validation_steps=10*int(ds.y_test.shape[0] / args.batch_size), callbacks=get_callbacks(custom_tensorboard_path, custom_model_path, logger_callback, log_path))
+        history = model.fit(ds.ds_train, epochs=args.epochs, validation_data=ds.ds_val, steps_per_epoch=10*int(ds.y_train.shape[0] / args.batch_size), validation_steps=10*int(ds.y_val.shape[0] / args.batch_size), callbacks=get_callbacks(custom_tensorboard_path, custom_model_path, logger_callback, log_path))
 
 save_history_and_plots(history, folder_name, args.epochs, gen, extended=ext)
 
@@ -202,7 +203,7 @@ elif args.dataset == 'SMALLNORB':
     model.build(input_shape)
     model.summary(print_fn=log.info_message)
 elif args.dataset == 'MULTIMNIST':
-    model = MULTIMNIST_build_graph(input_shape[1:], batch_size=args.batch_size, digit_vector_size=8, gen=gen, num_classes=10, softmax=softmax, neighboor_thetas=thetas, iterations=args.rooting_iterations, reduced_votes=reduced_votes, training=Faalse, deco=dec, cifar=if_cifar_Set_true, small=small, transformation_matrices_for_each_capsule=transformation_matrices_for_each_capsule, 
+    model = MULTIMNIST_build_graph(input_shape[1:], batch_size=args.batch_size, digit_vector_size=8, gen=gen, num_classes=10, softmax=softmax, neighboor_thetas=thetas, iterations=args.rooting_iterations, reduced_votes=reduced_votes, training=False, deco=dec, cifar=if_cifar_Set_true, small=small, transformation_matrices_for_each_capsule=transformation_matrices_for_each_capsule, 
                         lr_som =args.lr_som, radical=radical, normalize_d_in_loop=normalize_d_in_loop,
                         normalize_digit_caps=normalize_digit_caps, normalize_votes=normalize_votes, norm_type=args.norm_type, take_into_account_similarity=take_into_account_similarity, take_into_account_winner_ratios=take_into_account_winner_ratios, tanh_like=tanh_like)
     model.build(input_shape)
@@ -231,7 +232,7 @@ if not gen:
         margin_loss = MarginLoss(sparce=True, num_classes=10)
         model.compile(loss=[tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)],
         metrics=[MultiAccuracy()],optimizer=tf.keras.optimizers.Nadam(args.lr))
-        history = model.evaluate(ds.ds_test, callbacks=get_callbacks_eval(log, log_path_ev))
+        history = model.evaluate(ds.ds_test, callbacks=get_callbacks_eval(log, log_path_ev), steps = 10*int(ds.y_test.shape[0] / args.batch_size)) # Maybe steps are not needed but is not wrong to have them.
         log.info_message("Evaluated the model and got these results: ", history)
 else: 
     if args.dataset != 'SMALLNORB' and args.dataset != 'MULTIMNIST':
@@ -251,7 +252,7 @@ else:
         margin_loss = MarginLoss(sparce=True, num_classes=10)
         model.compile(loss=[margin_loss, 'mse', 'mse'], loss_weights=[0.8, 0.1, 0.1],
         metrics=[MultiAccuracy()],optimizer=tf.keras.optimizers.Nadam(args.lr))
-        history = model.evaluate(ds.ds_test, callbacks=get_callbacks_eval(log, log_path_ev), steps = 10*int(ds.y_test.shape[0] / args.batch_size))
+        history = model.evaluate(ds.ds_test, callbacks=get_callbacks_eval(log, log_path_ev), steps = 10*int(ds.y_test.shape[0] / args.batch_size)) # Maybe steps are not needed but is not wrong to have them.
         log.info_message("Evaluated the model and got these results: ", history)
 
 

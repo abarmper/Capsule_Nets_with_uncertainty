@@ -44,10 +44,10 @@ class PrimaryCaps(tf.keras.layers.Layer):
 
     def get_config(self):
         config = {
-            'f': self.f,
-            'd': self.d,
-            'k': self.k,
-            's': self.s
+            'capsule_filters': self.f,
+            'vector_depth': self.d,
+            'kernel': self.k,
+            'stride': self.s
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))

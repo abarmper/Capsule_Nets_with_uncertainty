@@ -39,9 +39,10 @@ class MyModel(tf.keras.Model):
   def call(self, inputs):
     x = self.first_layer(inputs)
     x = self.p_caps(x)
+    # print("\n\nmama x after primary caps shape: ", x.shape)
     if self.small:
       x = self.p_caps2(x)
-
+    # print("\n x shape after small:", x.shape)
     x , caps=  self.d_caps(x)
 
     # For more efficiency: define digit_caps inside Digit_Caps layer and...
@@ -87,9 +88,14 @@ def som_capsnet_graph(input_shape, digit_vector_size = 8, num_classes=10, reduce
   inputs = tf.keras.Input(input_shape)
   #print('SHAPEEE: ', input_shape)
   out1 = tf.keras.layers.Conv2D(256, 9, activation='relu', name='conv_layer')(inputs)
-  out2 = PrimaryCaps()(out1)
   if small:
-    out2 = tf.keras.layers.Conv2D(2, 6, activation='relu', name='conv_mini')(out2)
+    # print("\n\nmama2 primary caps shape: ", out1.shape)
+    out1 = tf.keras.layers.Conv2D(8*4, 6, activation='relu', name='conv_mini')(out1)
+    # print("\n mama2 after primary caps shape: ", out1.shape)
+    out2 = PrimaryCaps(capsule_filters=4)(out1)
+  else:
+    out2 = PrimaryCaps()(out1)
+
   out3, caps = DigitCaps(vector_depth=digit_vector_size, num_out_caps=num_classes , reduced_votes=reduced_votes, transf_mat_for_each_caps= transformation_matrices_for_each_capsule, iter=iterations, softmax=softmax, l_thetas=neighboor_thetas, lr_som=lr_som, radical=radical,
                          normalize_d_in_loop=normalize_d_in_loop, normalize_digit_caps=normalize_digit_caps, normalize_votes=normalize_votes, norm_type=norm_type, take_into_account_similarity=take_into_account_similarity, take_into_account_winner_ratios=take_into_account_winner_ratios, tanh_like=tanh_like)(out2)
   
@@ -175,9 +181,13 @@ def SMALLNORB_som_capsnet_graph(input_shape, digit_vector_size = 8, num_classes=
   inputs = tf.keras.Input(input_shape)
   #print('SHAPEEE: ', input_shape) # should be [48, 48, 2] because we have 2 images for each sample.
   out1 = tf.keras.layers.Conv2D(256, 9, activation='relu', name='conv_layer')(inputs)
-  out2 = PrimaryCaps()(out1)
   if small:
-    out2 = tf.keras.layers.Conv2D(2, 6, activation='relu', name='conv_mini')(out2)
+    # print("\n\nmama2 primary caps shape: ", out1.shape)
+    out1 = tf.keras.layers.Conv2D(8*4, 6, activation='relu', name='conv_mini')(out1)
+    # print("\n mama2 after primary caps shape: ", out1.shape)
+    out2 = PrimaryCaps(capsule_filters=4)(out1)
+  else:
+    out2 = PrimaryCaps()(out1)
   out3, caps = DigitCaps(vector_depth=digit_vector_size, num_out_caps=num_classes , reduced_votes=reduced_votes, transf_mat_for_each_caps= transformation_matrices_for_each_capsule, iter=iterations, softmax=softmax, l_thetas=neighboor_thetas, lr_som=lr_som, radical=radical,
                          normalize_d_in_loop=normalize_d_in_loop, normalize_digit_caps=normalize_digit_caps, normalize_votes=normalize_votes, norm_type=norm_type, take_into_account_similarity=take_into_account_similarity, take_into_account_winner_ratios=take_into_account_winner_ratios, tanh_like=tanh_like)(out2)
   
@@ -248,9 +258,13 @@ def MULTIMNIST_som_capsnet_graph(input_shape, digit_vector_size = 8, num_classes
   inputs = tf.keras.Input(input_shape)
   #print('SHAPEEE Hi!: ', input_shape)
   out1 = tf.keras.layers.Conv2D(256, 9, activation='relu', name='conv_layer')(inputs)
-  out2 = PrimaryCaps()(out1)
   if small:
-    out2 = tf.keras.layers.Conv2D(2, 6, activation='relu', name='conv_mini')(out2)
+    # print("\n\nmama2 primary caps shape: ", out1.shape)
+    out1 = tf.keras.layers.Conv2D(8*4, 6, activation='relu', name='conv_mini')(out1)
+    # print("\n mama2 after primary caps shape: ", out1.shape)
+    out2 = PrimaryCaps(capsule_filters=4)(out1)
+  else:
+    out2 = PrimaryCaps()(out1)
   out3, caps = DigitCaps(vector_depth=digit_vector_size, num_out_caps=num_classes , reduced_votes=reduced_votes, transf_mat_for_each_caps= transformation_matrices_for_each_capsule, iter=iterations, softmax=softmax, l_thetas=neighboor_thetas, lr_som=lr_som, radical=radical,
                          normalize_d_in_loop=normalize_d_in_loop, normalize_digit_caps=normalize_digit_caps, normalize_votes=normalize_votes, norm_type=norm_type, take_into_account_similarity=take_into_account_similarity, take_into_account_winner_ratios=take_into_account_winner_ratios, tanh_like=tanh_like)(out2)
   
