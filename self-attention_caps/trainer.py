@@ -52,12 +52,14 @@ def train_model(model_name=None, param_dict=None):
     log.info_message("Parameters of the training procedure. \n")
     log.print_train_args(args)
 
+    log.info_message("Loading dataset...")
     dataset = Dataset(model_name, config_path='config.json')
+    log.info_message("Dataset loaded (created Dataset instance).")
     model_train = EfficientCapsNet(model_name, 'train', 'config.json', custom_model_path, custom_model_path, custom_tensorboard_path, verbose=True, no_reconstructor=args.get('no_reconstructor'))
 
-    log.info_message("Loading dataset...")
-    dataset_train, dataset_val = dataset.get_tf_data() 
-    log.info_message("Dataset loaded...")
+    # log.info_message("Loading dataset...")
+    # dataset_train, dataset_val = dataset.get_tf_data() 
+    # log.info_message("Dataset loaded...")
 
     # Start training
     history = model_train.train(dataset, initial_epoch=0, log=log, log_csv_name=train_log_name)
