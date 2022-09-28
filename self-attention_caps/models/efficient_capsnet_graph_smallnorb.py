@@ -15,7 +15,7 @@
 
 import numpy as np
 import tensorflow as tf
-from utils.layers import PrimaryCaps, FCCaps, Length, Mask, FCCapsMultihead
+from utils.layers import PrimaryCaps, PrimaryCapsDynamicRouting, FCCaps, Length, Mask, FCCapsMultihead
 import tensorflow_addons as tfa
 
 
@@ -71,20 +71,24 @@ def efficient_capsnet_graph(input_shape, multihead=False, original_convs=False, 
 
         x = PrimaryCaps(128, 8, 16, 8)(x) # there could be an error
     else:
-        x = tf.keras.layers.Conv2D(32, 3, activation="relu", padding='valid')(inputs)
+        # Like Matrix Capsules
+        x = tf.keras.layers.Conv2D(32, 5, strides=2, activation="relu", padding='valid')(inputs)
         x =   tfa.layers.InstanceNormalization(axis=3, 
                                     center=True, 
                                     scale=True,
                                     beta_initializer="random_uniform",
                                     gamma_initializer="random_uniform")(x)
-        x = tf.keras.layers.Conv2D(64, 8, activation="relu", padding='valid')(x)
-        x =   tfa.layers.InstanceNormalization(axis=3, 
-                                    center=True, 
-                                    scale=True,
-                                    beta_initializer="random_uniform",
-                                    gamma_initializer="random_uniform")(x)
-        x = tf.keras.layers.Conv2D(128, 9, activation="relu", padding='valid')(x)
-        x = PrimaryCaps(128, 9, 16*12*12, 8, s=2)(x)
+        # # Old impolementation:
+        # x = tf.keras.layers.Conv2D(64, 8, activation="relu", padding='valid')(x)
+        # x =   tfa.layers.InstanceNormalization(axis=3, 
+        #                             center=True, 
+        #                             scale=True,
+        #                             beta_initializer="random_uniform",
+        #                             gamma_initializer="random_uniform")(x)
+        # x = tf.keras.layers.Conv2D(128, 9, activation="relu", padding='valid')(x)
+        # x = PrimaryCapsDynamicRouting(128, 9, 16*12*12, 8, s=2)(x)
+        # # New, matrix capsules like implementation:
+        x = PrimaryCapsDynamicRouting(32*8, 9, 32*7*7, 8, s=2)(x) # Input image: 48x48, (48 - 5) // 2 + 1 = 22, (22 - 9)//2 + 1 = 7
 
     if multihead:
         digit_caps, c = FCCapsMultihead(5,16, A=num_heads, QKD=int(16/num_heads), D_v=int(16/num_heads), Alg1=Algo1, scaled_emb=scale_the_embedding, agreement_scores=use_agreement_criterion)(x)

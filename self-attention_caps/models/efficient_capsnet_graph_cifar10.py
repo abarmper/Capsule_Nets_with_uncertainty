@@ -51,9 +51,9 @@ def efficient_capsnet_graph(input_shape, multihead=False, original_convs=False, 
         x = tf.keras.layers.BatchNormalization()(x)
         x = PrimaryCaps(256, 7, 32, 8)(x)
     else:
-        x = tf.keras.layers.Conv2D(64, 3, activation='relu', padding='valid')(inputs)
-        x = tf.keras.layers.Conv2D(256, 7, activation="relu", padding='valid')(x)
-        x = PrimaryCaps(256, 9, 32*4*4, 8, s=2)(x)
+        # Like Dynamic Routing
+        x = tf.keras.layers.Conv2D(256, 9, activation='relu', padding='valid')(inputs)
+        x = PrimaryCaps(64*8, 9, 64*4*4, 8, s=2)(x)
 
     if multihead:
         # With multihead: You may cange the number of heads through A parameter.

@@ -15,7 +15,7 @@
 
 import numpy as np
 import tensorflow as tf
-from utils.layers import PrimaryCaps, FCCaps, Length, Mask, FCCapsMultihead
+from utils.layers import PrimaryCaps, PrimaryCapsDynamicRouting, FCCaps, Length, Mask, FCCapsMultihead
 
 
 def efficient_capsnet_graph(input_shape, multihead=False, original_convs=False, num_heads=2, Algorithm = 'RooMAV', scale_the_embedding=True, use_agreement_criterion=True):
@@ -53,7 +53,7 @@ def efficient_capsnet_graph(input_shape, multihead=False, original_convs=False, 
     else:
         x = tf.keras.layers.Conv2D(256, 9, activation="relu", padding='valid')(inputs)
         #x = tf.keras.layers.Conv2D(256, 9, activation="relu", padding='valid')(x)
-        x = PrimaryCaps(256, 9, 32*6*6, 8, s=2)(x) # 256/8 = 32, 6 x 6 are the result of the reshape.
+        x = PrimaryCapsDynamicRouting(256, 9, 32*6*6, 8, s=2)(x) # 256/8 = 32, 6 x 6 are the result of the reshape (after conv layer above and conv layer inside primaryCaps, we get 256 x 6 x 6).
         
 
     if multihead:

@@ -15,7 +15,7 @@
 
 import numpy as np
 import tensorflow as tf
-from utils.layers import PrimaryCaps, FCCaps, Length, Mask, FCCapsMultihead
+from utils.layers import PrimaryCaps, PrimaryCapsDynamicRouting, FCCaps, Length, Mask, FCCapsMultihead
 
 
 def efficient_capsnet_graph(input_shape, multihead=False, original_convs=False, num_heads=4, Algorithm = 'RooMAV', scale_the_embedding=True, use_agreement_criterion=True):
@@ -48,11 +48,11 @@ def efficient_capsnet_graph(input_shape, multihead=False, original_convs=False, 
         x = tf.keras.layers.BatchNormalization()(x)
         x = tf.keras.layers.Conv2D(128,3,2, activation='relu', padding='valid', kernel_initializer='he_normal')(x)   
         x = tf.keras.layers.BatchNormalization()(x)
-        x = PrimaryCaps(128, 5, 16, 8, 2)(x)
+        x = PrimaryCaps(128, 6, 16, 8, 2)(x) # Was 5 instead of 6.
 
     else:
-        x = tf.keras.layers.Conv2D(128, 9, activation="relu", padding='valid')(inputs)
-        x = PrimaryCaps(128, 9, 16*10*10, 8, s=2)(x)
+        x = tf.keras.layers.Conv2D(256, 9, activation="relu", padding='valid')(inputs) # was 128 instead of 256
+        x = PrimaryCapsDynamicRouting(256, 9, 32*10*10, 8, s=2)(x) # was 128 instead of 256, was 16 instead of 32
     
     if multihead:
         digit_caps, c = FCCapsMultihead(10,16, A=num_heads, QKD=int(16/num_heads), D_v=int(16/num_heads), Alg1=Algo1, scaled_emb=scale_the_embedding, agreement_scores=use_agreement_criterion)(x)

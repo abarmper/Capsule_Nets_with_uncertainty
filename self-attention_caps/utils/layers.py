@@ -144,6 +144,60 @@ class PrimaryCaps(tf.keras.layers.Layer):
         return {**base_config, **config}
     
 
+class PrimaryCapsDynamicRouting(tf.keras.layers.Layer):
+    """
+    Create a primary capsule layer as defined in "Dynamic Routing Between Capsules".
+    
+    ...
+    
+    Attributes
+    ----------
+    F: int
+        number of capsule types
+    K: int
+        conv kernel dimension
+    N: int
+        number of primary capsules
+    D: int
+        primary capsules dimension (number of properties)
+    s: int
+        conv strides
+    Methods
+    -------
+    call(inputs)
+        compute the primary capsule layer
+    """
+    def __init__(self, F, K, N, D, s=2, **kwargs):
+        super(PrimaryCaps, self).__init__(**kwargs)
+        self.F = F
+        self.K = K
+        self.N = N
+        self.D = D
+        self.s = s
+        
+    def build(self, input_shape):    
+        self.DW_Conv2D = tf.keras.layers.Conv2D(self.F, self.K, self.s,
+                                             activation='linear', padding='valid')
+
+        self.built = True
+    
+    def call(self, inputs):      
+        x = self.DW_Conv2D(inputs)      
+        x = tf.keras.layers.Reshape((self.N, self.D))(x)
+        x = Squash()(x)
+        
+        return x
+    
+    def get_config(self):
+        config = {
+            'F': self.F,
+            'K': self.K,
+            'N': self.N, 
+            'D': self.D, 
+            's': self.s
+        }
+        base_config = super().get_config()
+        return {**base_config, **config}
 
 class FCCaps(tf.keras.layers.Layer):
     """
