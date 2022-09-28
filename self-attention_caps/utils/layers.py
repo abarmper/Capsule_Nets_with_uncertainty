@@ -275,7 +275,7 @@ class MyAttention_Zero_Head(tf.keras.layers.Layer):
         # Q, K, V shape, in the case of capsules, may be: [Batch_size, n^{L+1}, n^L, d^{L+1}]
         Q,K,V = inputs
            
-        Attention_matrix = tf.matmul(Q,K, transpose_b=True) # shape of attention matrix [Batch_size, n^{L+1}, n^L,n^L]
+        Attention_matrix = tf.matmul(Q,K, transpose_b=True) / tf.constant(K.shape[-1],dtype=tf.float32) # shape of attention matrix [Batch_size, n^{L+1}, n^L,n^L]
         if self.activation!= None:
             Attention_matrix = self.non_linearity(Attention_matrix)
         new_embeddings = tf.matmul(Attention_matrix, V) # shape now is [Batch_size, n^{L+1}, n^L, d_v] (d_v usually == d^{L+1})
@@ -396,7 +396,7 @@ class MyAttention_Multihead_projection(tf.keras.layers.Layer):
             V = V + tf.transpose(self.bv)
         
         # Compute attention matrix.  
-        Attention_maps = tf.einsum('...kij,...zij->...kzj',Q,K) # [batch_size, n^{L+1}, n^L, n^L, A]
+        Attention_maps = tf.einsum('...kij,...zij->...kzj',Q,K) / tf.constant(K.shape[-2],dtype=tf.float32) # [batch_size, n^{L+1}, n^L, n^L, A]
         # Optional element-wise non-linearity
         if self.activation!= None:
             Attention_maps = self.non_linearity(Attention_maps)
